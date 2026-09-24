@@ -50,6 +50,7 @@ export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "al
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
     shake: 0, freeze: 0, spawnT: 0, bossSpawned: false,
+    events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
     stats: null, load: 0,
   };
@@ -80,6 +81,7 @@ export function startWave(run) {
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
   for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat";
+  run.events.push({ type: "waveStart" });
 }
 
 // ---------------------------------------------------------------- derived numbers (also used by UI)
@@ -101,6 +103,7 @@ export const weaponsOffline = (run) =>
 // ---------------------------------------------------------------- simulation
 export function update(run, dt, move) {
   if (run.phase !== "combat") return;
+  if (run.events.length > 256) run.events.length = 0;
   const s = run.stats, p = run.player, rand = run.rand, wave = WAVES[run.wave];
   run.time += dt; run.waveTime += dt;
 
@@ -134,6 +137,7 @@ export function update(run, dt, move) {
     run.bossSpawned = true;
     const c = spawnPoint(run, 180);
     run.marks.push({ ...c, t: 1.6, max: 1.6, type: wave.boss });
+    run.events.push({ type: "spawnBoss" });
   }
   for (const m of run.marks) {
     if ((m.t -= dt) > 0) continue;
@@ -155,6 +159,7 @@ export function update(run, dt, move) {
     if (d.shootEvery && (e.shootT -= dt) <= 0) {
       e.shootT = d.shootEvery;
       run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
+      run.events.push({ type: "enemyShot" });
     }
     if (d.burstEvery && (e.shootT -= dt) <= 0) {
       e.shootT = d.burstEvery;
@@ -164,6 +169,7 @@ export function update(run, dt, move) {
         run.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * d.boltSpeed, vy: Math.sin(a) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
       }
       run.fx.push({ type: "ring", x: e.x, y: e.y, r: d.r + 10, t: 0.3, max: 0.3, color: "#ff6b5a" });
+      run.events.push({ type: "enemyShot" });
     }
   }
   buildGrid(run.enemies);
@@ -206,6 +212,7 @@ export function update(run, dt, move) {
         run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp });
       }
       run.fx.push({ type: "muzzle", x: p.x + Math.cos(base) * 9, y: p.y + Math.sin(base) * 9, t: 0.05, max: 0.05 });
+      run.events.push({ type: def.pellets > 1 ? "flak" : "shot" });
       w.cd = def.interval;
       if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
     } else if (def.family === "melee") {
@@ -220,6 +227,7 @@ export function update(run, dt, move) {
         hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock);
       });
       run.fx.push({ type: "swing", x: p.x, y: p.y, a, arc: def.arc, reach, t: 0.14, max: 0.14, heavy: w.key === "fist" });
+      run.events.push({ type: "swing", heavy: w.key === "fist" });
       w.cd = def.cooldown;
     }
   }
@@ -232,6 +240,7 @@ export function update(run, dt, move) {
     if (rand() < dt * 30) steam(run);
     if (cap.vent <= 0) { cap.vent = 0; cap.charge = 0; }
   } else {
+    if (cap.charge < 1 && cap.charge + dt / times.fill >= 1) run.events.push({ type: "charged" });
     cap.charge = Math.min(1, cap.charge + dt / times.fill);
     const energy = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
     const plans = cap.charge >= 1 ? energy.map((w) => [w, plan(run, w)]) : [];
@@ -239,6 +248,7 @@ export function update(run, dt, move) {
     if (plans.some(([, pl]) => pl.ready)) {
       for (const [w, pl] of plans) discharge(run, w, pl.aim);
       cap.vent = cap.ventMax = times.vent; cap.hold = 0;
+      run.events.push({ type: "vent", dur: times.vent });
       run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
       run.shake = Math.max(run.shake, 5);
       if (s.ventBurst) {
@@ -288,13 +298,13 @@ export function update(run, dt, move) {
     const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
     if (d < s.pickup) k.pull = true;
     if (k.pull) { k.v = Math.min(400, k.v + 900 * dt); k.x += (dx / d) * k.v * dt; k.y += (dy / d) * k.v * dt; }
-    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; }
+    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; run.events.push({ type: "pickup" }); }
   }
   run.pickups = run.pickups.filter((k) => !k.got);
 
   tickFx(run, dt);
 
-  if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; return; }
+  if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; run.events.push({ type: "dead" }); return; }
   if (run.waveTime >= wave.duration) endWave(run);
 }
 
@@ -362,12 +372,14 @@ function discharge(run, w, aim) {
       if (d < range + e.d.r) hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock);
     });
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
+    run.events.push({ type: "nova" });
     return;
   }
   const bestA = aim ?? p.aim;
   for (const e of beamHits(run, bestA, range, def.width)) hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60);
   run.fx.push({ type: "beam", x1: p.x, y1: p.y, x2: p.x + Math.cos(bestA) * range, y2: p.y + Math.sin(bestA) * range, w: def.width, t: 0.3, max: 0.3 });
   p.aim = bestA;
+  run.events.push({ type: "beam" });
 }
 
 function beamHits(run, a, range, width) {
@@ -387,7 +399,8 @@ function hitEnemy(run, e, dmg, kx, ky) {
   const m = e.d.mass || 1;
   e.kx += kx / m; e.ky += ky / m;
   run.texts.push({ x: e.x + (run.rand() - 0.5) * 6, y: e.y - e.d.r, n: Math.round(dmg), t: 0.6, max: 0.6 });
-  if (e.hp > 0) return;
+  if (e.hp > 0) { run.events.push({ type: "hit" }); return; }
+  run.events.push({ type: "boom", r: e.d.r });
   e.dead = true; run.kills++;
   run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
   for (let i = 0; i < 7 + e.d.r; i++) {
@@ -407,6 +420,7 @@ function hurtPlayer(run, dmg) {
   if (p.iframes > 0) return;
   p.hp -= dmg * armorMul(run.stats.armor);
   p.iframes = PLAYER_IFRAMES; p.hurt = 0.3;
+  run.events.push({ type: "hurt" });
   run.shake = Math.max(run.shake, 3);
 }
 
@@ -428,6 +442,7 @@ function tickFx(run, dt) {
 function endWave(run) {
   run.salvage += run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
+  run.events.push({ type: "waveClear" });
   if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
   run.phase = "hangar";
   run.shop.rerolls = 0;

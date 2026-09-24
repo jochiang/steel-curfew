@@ -81,6 +81,8 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .ghost { min-height: 46px; background: transparent; border: 1px solid var(--line-2); color: var(--muted); font-family: var(--px); font-size: 16px; }
 .small-panel .primary { margin-top: 10px; }
 .won h2 { color: var(--salvage); }
+.title-foot { display: flex; justify-content: center; margin-top: 12px; }
+.title-foot .sound { min-width: 140px; }
 .lost h2 { color: var(--danger); }
 
 /* title */

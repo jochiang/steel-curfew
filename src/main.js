@@ -6,6 +6,7 @@ import { createRenderer } from "./render.js";
 import { newRun, update, nextWave, startWave } from "./game.js";
 import { show, renderTitle, renderHangar, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop } from "./bot.js";
+import { play } from "./audio.js";
 
 // URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&wave=3&go (skip title) &bot (autopilot) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
@@ -88,6 +89,7 @@ function frame(now) {
     syncScreens();
   }
   if (run) {
+    play(run.events);
     renderer.draw(run, dt, input);
     if (run.phase === "combat") updateHud(run);
   }

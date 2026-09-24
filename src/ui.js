@@ -2,11 +2,15 @@ import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, armorMul } from "./cont
 import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes,
 } from "./game.js";
+import { isMuted, setMuted, ui as sfx } from "./audio.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const FAM = { ballistic: "Ballistic", energy: "Energy", melee: "Melee", module: "Module" };
 const fmt = (n) => (Math.round(n * 10) / 10).toString();
+
+const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!isMuted()}">Sound: ${isMuted() ? "off" : "on"}</button>`;
+function toggleSound(b) { setMuted(!isMuted()); b.outerHTML = soundBtn(); sfx("click"); }
 
 export function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
@@ -36,10 +40,13 @@ export function renderTitle(opts, onDeploy) {
       </div>
       <button class="primary" data-deploy>Deploy</button>
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
+      <div class="title-foot">${soundBtn()}</div>
     </div>`;
   el.onclick = (e) => {
     const b = e.target.closest("button");
     if (!b) return;
+    if ("sound" in b.dataset) return toggleSound(b);
+    sfx("click");
     if (b.dataset.start) opts.start = b.dataset.start;
     if (b.dataset.vent) opts.ventMode = b.dataset.vent;
     if ("deploy" in b.dataset) return onDeploy();
@@ -133,9 +140,9 @@ export function renderHangar(run, onDeploy) {
     const b = e.target.closest("button");
     if (!b || b.disabled) return;
     const d = b.dataset;
-    if ("deploy" in d) { selected = -1; return onDeploy(); }
-    if (d.buy) buy(run, +d.buy);
-    else if (d.lock) run.shop.offers[+d.lock].locked = !run.shop.offers[+d.lock].locked;
+    if ("deploy" in d) { selected = -1; sfx("click"); return onDeploy(); }
+    sfx(d.buy && buy(run, +d.buy) ? "buy" : "click");
+    if (d.lock) run.shop.offers[+d.lock].locked = !run.shop.offers[+d.lock].locked;
     else if ("reroll" in d) reroll(run);
     else if (d.target) run.targeting = d.target;
     else if (d.slot) selected = selected === +d.slot ? -1 : +d.slot;
@@ -163,10 +170,12 @@ export function renderPaused(run, onResume, onQuit) {
       <h2>Paused</h2>
       <p class="sub">Wave ${run.wave + 1} · ${run.kills} wrecks</p>
       <button class="primary" data-resume>Resume</button>
+      ${soundBtn()}
       <button class="ghost" data-quit>Abandon run</button>
     </div>`;
   el.onclick = (e) => {
     const b = e.target.closest("button");
+    if (b?.dataset.sound !== undefined) return toggleSound(b);
     if (b?.dataset.resume !== undefined) onResume();
     if (b?.dataset.quit !== undefined) onQuit();
   };
