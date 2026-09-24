@@ -1,37 +1,42 @@
-// Test pilot for headless playthroughs (?bot). Kites away from nearby enemies, circles when
-// crowded, drifts toward salvage and away from walls. Not meant to be good, just to exercise the loop.
-import { ARENA, WEAPONS } from "./content.js";
+// Test pilot for headless playthroughs (?bot). Scores 16 headings by how much danger the mech
+// would be in a short step ahead, whether the way is open, and a nudge towards salvage; keeps
+// some momentum so it doesn't dither. Not meant to be good, just to exercise the loop.
+import { WEAPONS } from "./content.js";
 import { blocked, buy } from "./game.js";
+import { solidAt } from "./city.js";
+
+let lastA = 0;
 
 export function botMove(run) {
-  const p = run.player;
-  let fx = 0, fy = 0;
-  for (const e of run.enemies) {
-    const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
-    if (d > 110) continue;
-    const w = (e.d.boss ? 4 : 1) / (d * d);
-    fx += (dx / d) * w * 900; fy += (dy / d) * w * 900;
-    fx += (-dy / d) * w * 500; fy += (dx / d) * w * 500;   // orbit
-  }
-  for (const b of run.bolts) {
-    const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
-    if (d < 40) { fx += (-b.vy / 90) * 1.5; fy += (b.vx / 90) * 1.5; }
-  }
-  const wall = 60;
-  if (p.x < wall) fx += (wall - p.x) / 20;
-  if (p.x > ARENA.w - wall) fx -= (p.x - ARENA.w + wall) / 20;
-  if (p.y < wall) fy += (wall - p.y) / 20;
-  if (p.y > ARENA.h - wall) fy -= (p.y - ARENA.h + wall) / 20;
+  const p = run.player, city = run.city;
   const melee = run.weapons.some((w) => WEAPONS[w.key].family === "melee");
-  if (Math.hypot(fx, fy) < 0.4) {
-    const target = melee ? nearest(run.enemies, p) : nearest(run.pickups, p);
-    if (target) { const dx = target.x - p.x, dy = target.y - p.y, d = Math.hypot(dx, dy) || 1; fx += dx / d; fy += dy / d; }
+  let best = null;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2, cx = Math.cos(a), cy = Math.sin(a);
+    // blocked soon? check a few points ahead at the mech's radius
+    let open = 1;
+    for (const d of [10, 20, 34]) {
+      const x = p.x + cx * d, y = p.y + cy * d;
+      if (solidAt(city, x, y) || solidAt(city, x + cy * 7, y - cx * 7) || solidAt(city, x - cy * 7, y + cx * 7)) { open = d === 10 ? 0 : d === 20 ? 0.3 : 0.7; break; }
+    }
+    if (!open) continue;
+    const nx = p.x + cx * 24, ny = p.y + cy * 24;
+    let danger = 0;
+    for (const e of run.enemies) {
+      const d = Math.hypot(e.x - nx, e.y - ny);
+      if (d < 90) danger += (e.d.boss ? 4 : e.d.mass >= 3 ? 2 : 1) * (melee ? 0.5 : 1) * (90 - d) / 90;
+    }
+    for (const b of run.bolts) if (Math.hypot(b.x - nx, b.y - ny) < 22) danger += 2;
+    let lure = 0;
+    const tgt = melee ? run.enemies[0] : run.pickups[0];
+    if (tgt) { const d = Math.hypot(tgt.x - p.x, tgt.y - p.y) || 1; lure = ((tgt.x - p.x) / d) * cx + ((tgt.y - p.y) / d) * cy; }
+    const score = -danger * 3 + open * 2 + lure * 0.6 + Math.cos(a - lastA) * 0.8;
+    if (!best || score > best.score) best = { a, score };
   }
-  const m = Math.hypot(fx, fy);
-  return m > 0.05 ? { x: fx / Math.max(1, m), y: fy / Math.max(1, m) } : { x: 0, y: 0 };
+  if (!best) return { x: 0, y: 0 };
+  lastA = best.a;
+  return { x: Math.cos(best.a), y: Math.sin(best.a) };
 }
-
-const nearest = (list, p) => list.reduce((b, o) => (!b || Math.hypot(o.x - p.x, o.y - p.y) < Math.hypot(b.x - p.x, b.y - p.y) ? o : b), null);
 
 export function botShop(run) {
   for (let pass = 0; pass < 4; pass++) {

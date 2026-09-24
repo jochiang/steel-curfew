@@ -2,6 +2,8 @@ import { ARENA, ENEMIES, WEAPONS } from "./content.js";
 import { weaponsOffline } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, OUTLINE } from "./art.js";
+import { TILE, COLS, wallHeight } from "./city.js";
+import { paintGround, paintBuilding, paintRubble, propSprites } from "./cityart.js";
 
 // The world is drawn into a small buffer (about 200 game px on the short side) and blown up by an
 // integer factor, so pixels stay square. The camera moves smoothly: the buffer is drawn one pixel
@@ -54,47 +56,6 @@ function shadowSprite(w) {
   return c;
 }
 
-// Floor: bevelled deck plates, grime, bolt heads, hazard-striped wall.
-function floorTexture() {
-  const W = ARENA.w, H = ARENA.h, c = new OffscreenCanvas(W, H), g = c.getContext("2d");
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  g.fillStyle = "#1b1e25"; g.fillRect(0, 0, W, H);
-  for (let y = 0; y < H; y += 32) for (let x = 0; x < W; x += 32) {
-    const tone = rnd() < 0.2 ? "#1e222a" : rnd() < 0.1 ? "#191c22" : "#1c1f26";
-    g.fillStyle = tone; g.fillRect(x + 1, y + 1, 30, 30);
-    g.fillStyle = "#262a33"; g.fillRect(x + 1, y + 1, 30, 1); g.fillRect(x + 1, y + 1, 1, 30);   // lit edge
-    g.fillStyle = "#121419"; g.fillRect(x, y + 31, 32, 1); g.fillRect(x + 31, y, 1, 32);          // seam
-    g.fillStyle = "#2c313b";
-    for (const [ox, oy] of [[4, 4], [27, 4], [4, 27], [27, 27]]) g.fillRect(x + ox, y + oy, 1, 1);
-    if (rnd() < 0.12) {   // vent grate
-      g.fillStyle = "#14161b"; g.fillRect(x + 9, y + 11, 14, 10);
-      g.fillStyle = "#23272f";
-      for (let i = 0; i < 5; i++) g.fillRect(x + 10, y + 12 + i * 2, 12, 1);
-    }
-  }
-  for (let i = 0; i < 1400; i++) {   // grime and scratches
-    g.fillStyle = rnd() < 0.6 ? "#16181e" : "#23262e";
-    g.fillRect((rnd() * W) | 0, (rnd() * H) | 0, 1 + ((rnd() * 3) | 0), 1);
-  }
-  for (let i = 0; i < 14; i++) {   // oil stains
-    const x = rnd() * W, y = rnd() * H, r = 4 + rnd() * 9;
-    g.fillStyle = "rgba(8,9,12,0.35)"; discPx(g, x | 0, y | 0, r);
-    g.fillStyle = "rgba(8,9,12,0.25)"; discPx(g, (x + r * 0.6) | 0, (y + 2) | 0, r * 0.6);
-  }
-  // wall: hazard-striped lip with a dark inner edge
-  const T = 6;
-  for (let i = 0; i < W + H; i += 1) {
-    g.fillStyle = Math.floor(i / 5) % 2 ? "#e0a93b" : "#1d1a14";
-    if (i < W) { g.fillRect(i, 0, 1, T - 2); g.fillRect(i, H - T + 2, 1, T - 2); }
-    if (i < H) { g.fillRect(0, i, T - 2, 1); g.fillRect(W - T + 2, i, T - 2, 1); }
-  }
-  g.fillStyle = "#0d0e12";
-  g.fillRect(T - 2, T - 2, W - 2 * (T - 2), 2); g.fillRect(T - 2, H - T, W - 2 * (T - 2), 2);
-  g.fillRect(T - 2, T - 2, 2, H - 2 * (T - 2)); g.fillRect(W - T, T - 2, 2, H - 2 * (T - 2));
-  return c;
-}
-
 function vignette(w, h) {
   const c = new OffscreenCanvas(w, h), g = c.getContext("2d");
   for (let i = 0; i < 6; i++) {
@@ -111,16 +72,18 @@ function vignette(w, h) {
 export function createRenderer(canvas) {
   const ctx = canvas.getContext("2d");
   const buf = new OffscreenCanvas(8, 8), g = buf.getContext("2d");
-  const baseFloor = floorTexture();
-  const floor = new OffscreenCanvas(ARENA.w, ARENA.h), fg = floor.getContext("2d");
-  let floorWave = -1, floorTime = 0;
+  let floor = null, fg = null, floorCity = null;
+  const bsprites = new Map();   // "id:stage" -> building sprite
+  const props = propSprites();
+  const smoke = [];             // renderer-only ambient smoke from wrecked buildings
 
   const mech = { cold: mechFrames(false), hotA: mechFrames(true, 0), hotB: mechFrames(true, 1) };
   mech.flash = mech.cold.map((f) => flash(f));
+  mech.xray = flash(mech.cold[0], "#7fd8ff");
   const enemies = {};
   for (const k of Object.keys(ENEMIES)) {
     const frames = enemyFrames(k);
-    enemies[k] = { frames, flash: frames.map((f) => flash(f)) };
+    enemies[k] = { frames, flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")) };
   }
   const shadows = new Map();
   const shadow = (w) => { if (!shadows.has(w)) shadows.set(w, shadowSprite(w)); return shadows.get(w); };
@@ -152,13 +115,15 @@ export function createRenderer(canvas) {
     cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
   }
 
-  // scorch decals live on a per-wave copy of the floor
+  // the city's ground canvas: scorch marks and rubble are stamped into it and persist for the run
   function syncFloor(run) {
-    if (floorWave !== run.wave || run.waveTime < floorTime) { fg.drawImage(baseFloor, 0, 0); floorWave = run.wave; }
-    floorTime = run.waveTime;
+    const city = run.city;
+    if (floorCity !== city) { floor = paintGround(city); fg = floor.getContext("2d"); floorCity = city; bsprites.clear(); smoke.length = 0; }
     for (const f of run.fx) {
-      if (f.type !== "boom" || f.decal) continue;
-      f.decal = true;
+      if (f.stamped) continue;
+      if (f.type === "collapse") { f.stamped = true; paintRubble(fg, city.buildings[f.bid]); continue; }
+      if (f.type !== "boom") continue;
+      f.stamped = true;
       const r = f.r + 2, x = Math.round(f.x), y = Math.round(f.y);
       fg.fillStyle = "rgba(6,6,8,0.18)"; discPx(fg, x, y, r);
       fg.fillStyle = "rgba(6,6,8,0.16)"; discPx(fg, x, y, r * 0.55);
@@ -168,6 +133,13 @@ export function createRenderer(canvas) {
         fg.fillRect(Math.round(f.x + Math.cos(a) * d), Math.round(f.y + Math.sin(a) * d), 1, 1);
       }
     }
+  }
+
+  const stageOf = (b) => (b.hp > b.maxHp * 0.66 ? 0 : b.hp > b.maxHp * 0.33 ? 1 : 2);
+  function buildingSprite(b, stage) {
+    const k = b.id + ":" + stage;
+    if (!bsprites.has(k)) bsprites.set(k, paintBuilding(b, stage));
+    return bsprites.get(k);
   }
 
   function draw(run, dt, input) {
@@ -215,24 +187,55 @@ export function createRenderer(canvas) {
       g.drawImage(f, X(k.x) - (f.width >> 1), Y(k.y) - (f.height >> 1) - bob);
     }
 
-    // ---- shadows then bodies (y-sorted)
+    // ---- shadows, then everything that stands up, sorted by its base line. Buildings are 3/4
+    // view: the roof is drawn raised by the wall height, so tall blocks hide what's behind them.
+    const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
     for (const e of run.enemies) {
       const w = e.d.r * 2 + (e.d.boss ? 2 : 0), s = shadow(w);
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
     g.drawImage(shadow(16), X(p.x) - 8, Y(p.y) + 8);
 
-    const bodies = run.enemies.slice().sort((a, b) => a.y - b.y);
-    let drewPlayer = false;
-    for (const e of bodies) {
-      if (!drewPlayer && e.y > p.y) { drawPlayer(run, X, Y); drewPlayer = true; }
-      const set = enemies[e.type], n = set.frames.length;
-      const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
-      const spr = (e.flash > 0 ? set.flash : set.frames)[fi];
-      const bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
-      g.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
+    const city = run.city, items = [];
+    for (const b of city.buildings) {
+      if (b.dead) continue;
+      const x0 = b.x * TILE, y1 = (b.y + b.h) * TILE;
+      if (!inView(x0, b.y * TILE - wallHeight(b), x0 + b.w * TILE, y1)) continue;
+      items.push([y1, 0, b]);
     }
-    if (!drewPlayer) drawPlayer(run, X, Y);
+    for (const f of run.fx) if (f.type === "collapse") { const b = city.buildings[f.bid]; items.push([(b.y + b.h) * TILE, 1, b, f]); }
+    for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) items.push([pr.y + 4, 2, pr]);
+    for (const e of run.enemies) items.push([e.y + e.d.r * 0.5, 3, e]);
+    items.push([p.y + 8, 4, p]);
+    items.sort((a, b) => a[0] - b[0]);
+    for (const [, kind, o, f] of items) {
+      if (kind === 0) {
+        if (o.hit > 0) o.hit -= dt;
+        const spr = buildingSprite(o, stageOf(o)), jit = o.hit > 0 ? (Math.random() < 0.5 ? -1 : 1) : 0;
+        g.drawImage(spr, X(o.x * TILE) + jit, Y(o.y * TILE - wallHeight(o)));
+        if (stageOf(o) === 2 && Math.random() < dt * (1 + o.w * o.h * 0.3)) {
+          smoke.push({ x: (o.x + Math.random() * o.w) * TILE, y: (o.y + Math.random() * o.h) * TILE - wallHeight(o), t: 1.4, max: 1.4 });
+        }
+      } else if (kind === 1) {   // collapsing: the building sinks into its own dust
+        const k = f.t / f.max, spr = buildingSprite(o, 2), Hw = wallHeight(o), sink = Math.round((1 - k) * (spr.height * 0.85));
+        const jit = Math.random() < 0.5 ? -1 : 1;
+        if (spr.height - sink > 0) g.drawImage(spr, 0, 0, spr.width, spr.height - sink, X(o.x * TILE) + jit, Y(o.y * TILE - Hw) + sink, spr.width, spr.height - sink);
+      } else if (kind === 2) drawProp(o, X, Y);
+      else if (kind === 3) drawEnemy(o, t, X, Y, false);
+      else drawPlayer(run, X, Y);
+    }
+    // x-ray: units hidden behind a building are drawn again as faint silhouettes
+    for (const e of run.enemies) if (occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
+    if (occluded(city, p.x, p.y + 8)) { g.globalAlpha = 0.6; g.drawImage(mech.xray, X(p.x) - 9, Y(p.y) - 9); g.globalAlpha = 1; }
+
+    // ambient smoke from wrecked buildings
+    for (const q of smoke) { q.t -= dt; q.y -= 9 * dt; q.x += 3 * dt; }
+    for (let i = smoke.length - 1; i >= 0; i--) if (smoke[i].t <= 0) smoke.splice(i, 1);
+    for (const q of smoke) {
+      const k = q.t / q.max, sz = Math.round(2 + (1 - k) * 4);
+      g.globalAlpha = k * 0.45; g.fillStyle = "#3a3836"; g.fillRect(X(q.x) - (sz >> 1), Y(q.y) - (sz >> 1), sz, sz);
+    }
+    g.globalAlpha = 1;
 
     // ---- projectiles
     for (const s of run.shots) {
@@ -361,6 +364,39 @@ export function createRenderer(canvas) {
       ctx.fillStyle = "rgba(255,255,255,0.35)";
       ctx.beginPath(); ctx.arc(st.x * dpr, st.y * dpr, r * 0.42, 0, Math.PI * 2); ctx.fill();
     }
+  }
+
+  function drawEnemy(e, t, X, Y, ghost) {
+    const set = enemies[e.type], n = set.frames.length;
+    const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
+    const spr = (ghost ? set.xray : e.flash > 0 ? set.flash : set.frames)[fi];
+    const bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
+    if (ghost) g.globalAlpha = 0.5;
+    g.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
+    if (ghost) g.globalAlpha = 1;
+  }
+
+  function drawProp(pr, X, Y) {
+    let spr;
+    if (pr.type === "car") spr = (pr.broken ? props.carBroken : props.car)[pr.dir][pr.color];
+    else if (pr.type === "tree") spr = pr.broken ? props.treeBroken : props.tree[pr.v];
+    else spr = pr.broken ? props.lampBroken : props.lamp;
+    const base = pr.type === "car" ? spr.height / 2 : spr.height - 2;
+    g.drawImage(spr, X(pr.x) - (spr.width >> 1), Y(pr.y) - Math.round(base));
+  }
+
+  /** Is a point just north of a standing building, under its raised roof? */
+  function occluded(city, x, y) {
+    const tx = Math.floor(x / TILE);
+    for (let dy = 1; dy <= 2; dy++) {
+      const ty = Math.floor(y / TILE) + dy;
+      if (tx < 0 || ty < 0 || tx >= COLS || ty >= COLS) continue;
+      const id = city.bid[ty * COLS + tx];
+      if (id < 0 || city.buildings[id].dead) continue;
+      const b = city.buildings[id];
+      if (y > b.y * TILE - wallHeight(b) + 2 && y < b.y * TILE) return true;
+    }
+    return false;
   }
 
   function drawPlayer(run, X, Y) {

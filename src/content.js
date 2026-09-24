@@ -1,6 +1,10 @@
 // All tuning lives here. Units: world pixels, seconds, hit points.
 
-export const ARENA = { w: 640, h: 640 };
+import { TILE, COLS, ROWS } from "./city.js";
+export const ARENA = { w: COLS * TILE, h: ROWS * TILE };   // the city grid
+
+// How much each weapon family hurts buildings, relative to its damage to enemies
+export const BUILDING_DMG = { ballistic: 1, energy: 1.3, melee: 1.6, burst: 1 };
 
 export const CHASSIS = {
   warden: {
@@ -99,10 +103,10 @@ export const MODULES = {
 export const ENEMIES = {
   drone:   { name: "Scrap Drone", hp: 10, speed: 40, dmg: 6,  r: 5,  salvage: 1, color: "#c8604a" },
   skitter: { name: "Skitter",     hp: 6,  speed: 72, dmg: 4,  r: 4,  salvage: 1, color: "#d9a441" },
-  brute:   { name: "Brute",       hp: 60, speed: 28, dmg: 12, r: 9,  salvage: 5, color: "#8a4f7d", mass: 3 },
+  brute:   { name: "Brute",       hp: 60, speed: 28, dmg: 12, r: 9,  salvage: 5, color: "#8a4f7d", mass: 3, crush: 45 },
   spitter: { name: "Spitter",     hp: 16, speed: 34, dmg: 5,  r: 5,  salvage: 2, color: "#5aa36b",
              keepAway: 95, shootEvery: 2.2, boltSpeed: 90, boltDmg: 6 },
-  crusher: { name: "Crusher",     hp: 700, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20,
+  crusher: { name: "Crusher",     hp: 700, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
              burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
 };
 

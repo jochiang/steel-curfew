@@ -1,19 +1,13 @@
 import {
-  ARENA, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
+  ARENA, BUILDING_DMG, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
+import { mulberry32 } from "./rng.js";
+import { generateCity, collide, clearLine, solidAt, traverse, damageAt, damageBuilding, TILE, T, COLS as TCOLS, ROWS as TROWS } from "./city.js";
+import { makeField, updateField, steer, reachable } from "./flow.js";
+
 // ---------------------------------------------------------------- utils
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const angDiff = (a, b) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
 const pick = (rand, pool) => {
@@ -47,6 +41,8 @@ export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "al
     salvage: 0, kills: 0,
     weapons: [], modules: [],
     player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
+    city: generateCity(seed),   // persists for the whole run: damage piles up wave after wave
+    field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
     shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
@@ -76,7 +72,7 @@ export function recompute(run) {
 
 export function startWave(run) {
   const p = run.player;
-  Object.assign(p, { x: ARENA.w / 2, y: ARENA.h / 2, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
+  Object.assign(p, { x: run.city.spawn.x, y: run.city.spawn.y, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
   Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
   for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
@@ -111,9 +107,12 @@ export function update(run, dt, move) {
   const venting = run.cap.vent > 0;
   const spd = speedOf(run) * (venting ? 1 + s.ventSpeed : 1);
   p.moving = move.x !== 0 || move.y !== 0;
-  p.x = clamp(p.x + move.x * spd * dt, run.chassis.radius, ARENA.w - run.chassis.radius);
-  p.y = clamp(p.y + move.y * spd * dt, run.chassis.radius, ARENA.h - run.chassis.radius);
-  if (p.moving) p.moveAngle = Math.atan2(move.y, move.x);
+  const city = run.city;
+  p.x += move.x * spd * dt; p.y += move.y * spd * dt;
+  collide(city, p, run.chassis.radius);
+  p.x = clamp(p.x, run.chassis.radius, ARENA.w - run.chassis.radius);
+  p.y = clamp(p.y, run.chassis.radius, ARENA.h - run.chassis.radius);
+  if (p.moving) { p.moveAngle = Math.atan2(move.y, move.x); breakProps(run, p.x, p.y, run.chassis.radius + 3); }
   p.iframes -= dt; p.hurt = Math.max(0, p.hurt - dt);
   p.hp = Math.min(s.maxHp, p.hp + s.regen * dt);
 
@@ -126,6 +125,9 @@ export function update(run, dt, move) {
     return;
   }
 
+  updateField(run.field, city, p.x, p.y);
+  updateField(run.heavyField, city, p.x, p.y);
+
   // --- spawning: telegraph marks first, enemies appear when they expire
   if (run.waveTime < wave.duration - 1.5) {
     run.spawnT -= dt;
@@ -133,12 +135,11 @@ export function update(run, dt, move) {
       run.spawnT = wave.interval;
       const n = wave.group + Math.floor(run.waveTime / 12);
       const c = spawnPoint(run, 110);
-      for (let i = 0; i < n && run.enemies.length + run.marks.length < MAX_ENEMIES; i++) {
-        run.marks.push({
-          x: clamp(c.x + (rand() - 0.5) * 36, 10, ARENA.w - 10),
-          y: clamp(c.y + (rand() - 0.5) * 36, 10, ARENA.h - 10),
-          t: 0.9, max: 0.9, type: pick(rand, wave.pool),
-        });
+      for (let i = 0, tries = 0; i < n && tries < n * 4 && run.enemies.length + run.marks.length < MAX_ENEMIES; tries++) {
+        const x = c.x + (rand() - 0.5) * 36, y = c.y + (rand() - 0.5) * 36;
+        if (solidAt(city, x, y) || !reachable(run.field, x, y)) continue;
+        run.marks.push({ x, y, t: 0.9, max: 0.9, type: pick(rand, wave.pool) });
+        i++;
       }
     }
   }
@@ -159,10 +160,16 @@ export function update(run, dt, move) {
   const kbDecay = Math.exp(-8 * dt);
   for (const e of run.enemies) {
     const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
-    let dir = 1;
-    if (d.keepAway && dist < d.keepAway) dir = -0.6;
-    e.x += ((dx / dist) * d.speed * dir + e.kx) * dt;
-    e.y += ((dy / dist) * d.speed * dir + e.ky) * dt;
+    let mx = dx / dist, my = dy / dist;
+    if (d.keepAway && dist < d.keepAway && clearLine(city, e.x, e.y, p.x, p.y)) { mx *= -0.6; my *= -0.6; }
+    else if (dist > 36) {   // follow the flow field (heavies use theirs, which goes through buildings)
+      const st = steer(isHeavy(e) ? run.heavyField : run.field, e.x, e.y);
+      if (st) { const sx = st.x - e.x, sy = st.y - e.y, sl = Math.hypot(sx, sy) || 1; mx = sx / sl; my = sy / sl; }
+    }
+    const spd = d.speed * (e.crushing ? 0.45 : 1);
+    e.crushing = false;
+    e.x += (mx * spd + e.kx) * dt;
+    e.y += (my * spd + e.ky) * dt;
     e.kx *= kbDecay; e.ky *= kbDecay;
     e.flash -= dt;
     if (d.shootEvery && (e.shootT -= dt) <= 0) {
@@ -195,6 +202,8 @@ export function update(run, dt, move) {
     });
   }
   for (const e of run.enemies) {
+    collide(city, e, e.d.r, e.d.crush ? (ti) => { e.crushing = true; damageAt(city, ti, e.d.crush * dt * 0.5); } : null);
+    if (e.d.crush && e.crushing) breakProps(run, e.x, e.y, e.d.r + 2);
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
     const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
     if (dx * dx + dy * dy < r * r) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave));
@@ -212,13 +221,13 @@ export function update(run, dt, move) {
     if (def.family === "ballistic") {
       if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) w.mag = def.mag;
       if (offline || w.reloadT > 0 || w.cd > 0) continue;
-      const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
+      const t = sightedEnemy(run, def.range * (1 + s.rangeMul));
       if (!t) continue;
       const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
       for (let i = 0; i < def.pellets; i++) {
         const a = base + (rand() - 0.5) * def.spread * (def.pellets > 1 ? 1 : 2);
         const sp = def.speed * (def.pellets > 1 ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp });
+        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic" });
       }
       run.fx.push({ type: "muzzle", x: p.x + Math.cos(base) * 9, y: p.y + Math.sin(base) * 9, t: 0.05, max: 0.05 });
       run.events.push({ type: def.pellets > 1 ? "flak" : "shot" });
@@ -235,6 +244,7 @@ export function update(run, dt, move) {
         if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
         hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock);
       });
+      buildingsInArc(run, a, def.arc, reach + 6, dmg * BUILDING_DMG.melee);
       run.fx.push({ type: "swing", x: p.x, y: p.y, a, arc: def.arc, reach, t: 0.14, max: 0.14, heavy: w.key === "fist" });
       run.events.push({ type: "swing", heavy: w.key === "fist" });
       w.cd = def.cooldown;
@@ -274,6 +284,15 @@ export function update(run, dt, move) {
   for (const sh of run.shots) {
     sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.life -= dt;
     if (sh.life <= 0) continue;
+    if (solidAt(city, sh.x, sh.y)) {   // cover: rounds chew into whatever they hit
+      damageAt(city, Math.floor(sh.y / TILE) * TCOLS + Math.floor(sh.x / TILE), sh.dmg * BUILDING_DMG.ballistic);
+      sh.life = 0;
+      for (let i = 0; i < 2; i++) {
+        const a = Math.atan2(-sh.vy, -sh.vx) + (rand() - 0.5) * 2, v = 30 + rand() * 50;
+        run.parts.push({ x: sh.x - sh.vx * dt, y: sh.y - sh.vy * dt, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.25, max: 0.25, color: rand() < 0.5 ? "#9a948a" : "#c9c0b0", size: 1 });
+      }
+      continue;
+    }
     let hit = null;
     near(sh.x, sh.y, 20, (e) => {
       if (hit || e.dead) return;
@@ -297,11 +316,12 @@ export function update(run, dt, move) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     const dx = p.x - b.x, dy = p.y - b.y, r = run.chassis.radius + 2.5;
     if (dx * dx + dy * dy < r * r) { hurtPlayer(run, b.dmg); b.dead = true; }
-    if (b.x < -10 || b.y < -10 || b.x > ARENA.w + 10 || b.y > ARENA.h + 10) b.dead = true;
+    if (solidAt(city, b.x, b.y)) b.dead = true;
   }
   run.bolts = run.bolts.filter((b) => !b.dead);
   run.enemies = run.enemies.filter((e) => !e.dead);
 
+  processCollapses(run);
   tickPickups(run, dt);
   tickFx(run, dt);
 
@@ -310,12 +330,85 @@ export function update(run, dt, move) {
 }
 
 function spawnPoint(run, minDist) {
-  const p = run.player;
-  for (let i = 0; i < 30; i++) {
-    const x = 24 + run.rand() * (ARENA.w - 48), y = 24 + run.rand() * (ARENA.h - 48);
-    if (Math.hypot(x - p.x, y - p.y) >= minDist) return { x, y };
+  const p = run.player, city = run.city;
+  let best = null;
+  for (let i = 0; i < 60; i++) {
+    const tx = 1 + Math.floor(run.rand() * (TCOLS - 2)), ty = 1 + Math.floor(run.rand() * (TROWS - 2));
+    const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+    if (city.tile[ty * TCOLS + tx] === T.BUILDING || city.tile[ty * TCOLS + tx] === T.WALL || !reachable(run.field, x, y)) continue;
+    const d = Math.hypot(x - p.x, y - p.y);
+    if (d >= minDist && d < minDist * 2.6) return { x, y };
+    if (d >= minDist && !best) best = { x, y };
   }
-  return { x: p.x < ARENA.w / 2 ? ARENA.w - 30 : 30, y: p.y < ARENA.h / 2 ? ARENA.h - 30 : 30 };
+  return best || { x: city.spawn.x + minDist, y: city.spawn.y };
+}
+
+/** Nearest enemy in range with a clear line of fire; if none, the nearest anyway (shots chew the cover). */
+function sightedEnemy(run, range) {
+  const p = run.player, r2 = range * range, cands = [];
+  for (const e of run.enemies) {
+    if (e.dead) continue;
+    const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+    if (d2 < r2) cands.push([d2, e]);
+  }
+  if (!cands.length) return null;
+  cands.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < Math.min(8, cands.length); i++) if (clearLine(run.city, p.x, p.y, cands[i][1].x, cands[i][1].y)) return cands[i][1];
+  return cands[0][1];
+}
+
+/** Damage each building with a tile inside a swing arc (once per building) */
+function buildingsInArc(run, a, arc, reach, dmg) {
+  const p = run.player, city = run.city, seen = new Set();
+  const tx0 = Math.floor((p.x - reach) / TILE), tx1 = Math.floor((p.x + reach) / TILE);
+  const ty0 = Math.floor((p.y - reach) / TILE), ty1 = Math.floor((p.y + reach) / TILE);
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    if (tx < 0 || ty < 0 || tx >= TCOLS || ty >= TROWS) continue;
+    const id = city.bid[ty * TCOLS + tx];
+    if (id < 0 || seen.has(id) || city.buildings[id].dead) continue;
+    const nx = Math.max(tx * TILE, Math.min(p.x, (tx + 1) * TILE)), ny = Math.max(ty * TILE, Math.min(p.y, (ty + 1) * TILE));
+    const d = Math.hypot(nx - p.x, ny - p.y);
+    if (d > reach || (d > 2 && angDiff(Math.atan2(ny - p.y, nx - p.x), a) > arc / 2 + 0.3)) continue;
+    seen.add(id);
+    damageBuilding(city, city.buildings[id], dmg);
+  }
+}
+
+/** Cars, trees and lamps near a point get flattened */
+function breakProps(run, x, y, r) {
+  for (const pr of run.city.props) {
+    if (pr.broken || Math.abs(pr.x - x) > r + 7 || Math.abs(pr.y - y) > r + 7) continue;
+    pr.broken = true;
+    run.events.push({ type: "crunch" });
+    for (let i = 0; i < 5; i++) {
+      const a = run.rand() * Math.PI * 2, v = 20 + run.rand() * 40;
+      run.parts.push({ x: pr.x, y: pr.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.35, max: 0.35, color: pr.type === "tree" ? "#3f6b3a" : "#8a8f99", size: 1 });
+    }
+  }
+}
+
+/** Buildings that fell this tick: dust, debris, shake, a little salvage */
+function processCollapses(run) {
+  const city = run.city;
+  while (city.collapsed.length) {
+    const b = city.buildings[city.collapsed.shift()];
+    const cx = (b.x + b.w / 2) * TILE, cy = (b.y + b.h / 2) * TILE;
+    run.fx.push({ type: "collapse", bid: b.id, x: cx, y: cy, t: 0.7, max: 0.7 });
+    run.shake = Math.max(run.shake, 3 + b.height * 2);
+    run.events.push({ type: "collapse", size: b.w * b.h });
+    for (let i = 0; i < 16 + b.w * b.h * 4; i++) {   // dust billows out of the footprint
+      const x = (b.x + run.rand() * b.w) * TILE, y = (b.y + run.rand() * b.h) * TILE, a = run.rand() * Math.PI * 2, v = 15 + run.rand() * 55;
+      run.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 12, t: 0.9 + run.rand() * 1.0, max: 1.9, color: run.rand() < 0.5 ? "#8c867c" : "#6f6a62", size: 3 + (run.rand() * 3 | 0), steam: true });
+    }
+    for (let i = 0; i < 8 + b.w * b.h; i++) {   // chunks thrown clear
+      const a = run.rand() * Math.PI * 2, v = 60 + run.rand() * 90;
+      run.parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.5 + run.rand() * 0.3, max: 0.8, color: run.rand() < 0.5 ? "#5a564f" : "#2a2724", size: 2 });
+    }
+    breakProps(run, cx, cy, Math.max(b.w, b.h) * TILE * 0.6);
+    for (let n = Math.max(1, Math.round((b.w * b.h) / 3)); n > 0; n--) {
+      run.pickups.push({ x: (b.x + 0.2 + run.rand() * (b.w - 0.4)) * TILE, y: (b.y + 0.2 + run.rand() * (b.h - 0.4)) * TILE, n: 1, v: 0, pull: false });
+    }
+  }
 }
 
 function nearestEnemy(run, range) {
@@ -373,12 +466,18 @@ function discharge(run, w, aim) {
       if (d < range + e.d.r) hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock);
     });
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
+    buildingsInArc(run, 0, Math.PI * 2, range, dmg * BUILDING_DMG.energy);
     run.events.push({ type: "nova" });
     return;
   }
-  const bestA = aim ?? p.aim;
+  const bestA = aim ?? p.aim, ex = p.x + Math.cos(bestA) * range, ey = p.y + Math.sin(bestA) * range;
   for (const e of beamHits(run, bestA, range, def.width)) hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60);
-  run.fx.push({ type: "beam", x1: p.x, y1: p.y, x2: p.x + Math.cos(bestA) * range, y2: p.y + Math.sin(bestA) * range, w: def.width, t: 0.3, max: 0.3 });
+  // beams pierce cover, cutting into every building on the line
+  const cut = new Set();
+  traverse(p.x, p.y, ex, ey, (tx, ty) => { const id = tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS ? run.city.bid[ty * TCOLS + tx] : -1; if (id >= 0) cut.add(id); return false; });
+  for (const id of cut) damageBuilding(run.city, run.city.buildings[id], dmg * BUILDING_DMG.energy);
+  const i = run.weapons.indexOf(w), mx = p.x + (i % 2 ? 7 : -7), my = p.y - 4 + (Math.floor(i / 2) - 1) * 2;
+  run.fx.push({ type: "beam", x1: mx + Math.cos(bestA) * 8, y1: my + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: 0.3, max: 0.3 });
   p.aim = bestA;
   run.events.push({ type: "beam" });
 }
@@ -414,6 +513,7 @@ function hitEnemy(run, e, dmg, kx, ky) {
     run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
   }
   if (e.d.boss) { run.shake = Math.max(run.shake, 10); run.freeze = 0.18; }
+  if (e.d.r >= 9) breakProps(run, e.x, e.y, e.d.r + 6);
 }
 
 function hurtPlayer(run, dmg) {
