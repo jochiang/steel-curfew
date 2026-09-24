@@ -8,7 +8,7 @@ import { show, renderTitle, renderHangar, renderPaused, renderEnd, updateHud } f
 import { botMove, botShop } from "./bot.js";
 import { play } from "./audio.js";
 
-// URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&wave=3&go (skip title) &bot (autopilot) &ts=4 (time scale)
+// URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
 const BOT = params.has("bot");
 const TIME_SCALE = Math.max(0.1, Math.min(16, +params.get("ts") || 1));
@@ -25,11 +25,12 @@ const opts = {
   ventMode: params.get("vent") === "energy" ? "energy" : "all",
   seed: params.has("seed") ? +params.get("seed") : null,
   targeting: params.get("target") || "crowd",
+  tod: params.get("tod"),
 };
 let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = "";
 
 function deploy() {
-  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting });
+  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod });
   if (params.has("wave")) { run.wave = Math.max(0, Math.min(4, +params.get("wave") - 1)); startWave(run); }
   paused = false; acc = 0; shownPhase = "";
   input.reset();

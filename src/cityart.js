@@ -6,6 +6,7 @@ import { mulberry32 } from "./rng.js";
 import { OUTLINE } from "./art.js";
 
 const px = (g, c, x, y, w = 1, h = 1) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
+const hash = (a, b, c) => { let h = (a ^ Math.imul(b, 374761393) ^ Math.imul(c, 668265263)) >>> 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
 // ---------------------------------------------------------------- ground
 export function paintGround(city) {
@@ -112,8 +113,9 @@ export const STYLES = [
   { roof: "#948e80", roofLight: "#aaa495", roofDark: "#79736a", wall: "#7a7466", wallDark: "#625d52", win: "#262a31", winLit: "#f5dd95", trim: "#c2bba9" },
 ];
 
-/** Building sprite: W x (H + wall). stage 0 intact, 1 cracked, 2 wrecked. */
-export function paintBuilding(b, stage) {
+/** Building sprite: W x (H + wall). stage 0 intact, 1 cracked, 2 wrecked. At night some windows
+ *  are lit, and the sprite carries a `glow` mask of them (white) for the light map. */
+export function paintBuilding(b, stage, night = false) {
   const s = STYLES[b.style], rand = mulberry32(b.seed);
   const W = b.w * TILE, H = b.h * TILE, Hw = wallHeight(b);
   const c = new OffscreenCanvas(W, H + Hw), g = c.getContext("2d");
@@ -143,10 +145,13 @@ export function paintBuilding(b, stage) {
   px(g, s.wall, 0, H, W, Hw);
   px(g, "#15131b", 0, H, W, 1);                     // roof lip shadow
   px(g, s.wallDark, 0, H + Hw - 3, W, 3);            // street level
+  const lit = [];
   for (let wy = H + 3; wy < H + Hw - 4; wy += 5) for (let wx = 2; wx < W - 3; wx += 5) {
     const broken = stage > 0 && rand() < stage * 0.35;
-    px(g, broken ? "#0e0d12" : s.win, wx, wy, 3, 2);
+    const on = night && !broken && hash(b.seed, wx, wy) < 0.42;
+    px(g, broken ? "#0e0d12" : on ? s.winLit : s.win, wx, wy, 3, 2);
     if (!broken) px(g, s.trim, wx, wy + 2, 3, 1);
+    if (on) lit.push([wx, wy]);
   }
   for (let dx = 4; dx < W - 6; dx += 11) px(g, "#15131b", dx, H + Hw - 3, 3, 3);   // doorways
   // damage
@@ -169,6 +174,11 @@ export function paintBuilding(b, stage) {
   }
   // outline
   px(g, OUTLINE, 0, 0, W, 1); px(g, OUTLINE, 0, 0, 1, H + Hw); px(g, OUTLINE, W - 1, 0, 1, H + Hw); px(g, OUTLINE, 0, H + Hw - 1, W, 1);
+  if (night) {
+    const m = new OffscreenCanvas(W, H + Hw), mg = m.getContext("2d");
+    for (const [wx, wy] of lit) px(mg, "#ffffff", wx, wy, 3, 2);
+    c.glow = m;
+  }
   return c;
 }
 

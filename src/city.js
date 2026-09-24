@@ -111,7 +111,7 @@ export function generateCity(seed) {
     if ((roadDir[i] === 1 || roadDir[i] === 2) && rand() < 0.03 && !near(cx, cy, TILE * 2.5)) {
       props.push({ type: "car", x: cx, y: cy, dir: roadDir[i] === 1 ? 0 : 1, color: ri(0, 5), broken: false });
     }
-    if (ground[i] === G.SIDEWALK && rand() < 0.035 && !near(cx, cy, TILE * 3)) props.push({ type: "lamp", x: cx, y: cy, broken: false });
+    if (ground[i] === G.SIDEWALK && rand() < 0.045 && !near(cx, cy, TILE * 3)) props.push({ type: "lamp", x: cx, y: cy, broken: false });
   }
 
   return {

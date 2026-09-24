@@ -78,18 +78,23 @@ export function createRenderer(canvas) {
   const smoke = [];             // renderer-only ambient smoke from wrecked buildings
 
   const mech = { cold: mechFrames(false), hotA: mechFrames(true, 0), hotB: mechFrames(true, 1) };
+  const mechGlow = { cold: mechFrames(false, 0, true), hotA: mechFrames(true, 0, true), hotB: mechFrames(true, 1, true) };
   mech.flash = mech.cold.map((f) => flash(f));
   mech.xray = flash(mech.cold[0], "#7fd8ff");
   const enemies = {};
   for (const k of Object.keys(ENEMIES)) {
     const frames = enemyFrames(k);
-    enemies[k] = { frames, flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")) };
+    enemies[k] = { frames, flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")), glow: enemyFrames(k, true).map((f) => flash(f)) };
   }
   const shadows = new Map();
   const shadow = (w) => { if (!shadows.has(w)) shadows.set(w, shadowSprite(w)); return shadows.get(w); };
   const salv = [salvageFrames(), bigSalvageFrames()];
   const glows = new Map();
   const glowOf = (r, col) => { const k = r + col; if (!glows.has(k)) glows.set(k, glow(r, col)); return glows.get(k); };
+  const lightOf = (r, col) => { r = Math.max(2, Math.round(r)); const k = "L" + r + col; if (!glows.has(k)) glows.set(k, glow(r, col, true)); return glows.get(k); };
+  const light = new OffscreenCanvas(8, 8), lg = light.getContext("2d");
+  const flames = [];            // renderer-only fire particles on wrecked and fallen buildings
+  const burning = new Map();    // building id -> run.time when its rubble stops burning
 
   let S = 1, vw = 0, vh = 0, dpr = 1, vig = null;
   const cam = { x: ARENA.w / 2, y: ARENA.h / 2, init: false };
@@ -101,6 +106,7 @@ export function createRenderer(canvas) {
     S = Math.max(1, Math.round(Math.min(bw, bh) / TARGET_SHORT));
     vw = Math.ceil(bw / S); vh = Math.ceil(bh / S);
     buf.width = vw + 2; buf.height = vh + 2;
+    light.width = buf.width; light.height = buf.height;
     vig = vignette(buf.width, buf.height);
   }
   resize();
@@ -118,10 +124,10 @@ export function createRenderer(canvas) {
   // the city's ground canvas: scorch marks and rubble are stamped into it and persist for the run
   function syncFloor(run) {
     const city = run.city;
-    if (floorCity !== city) { floor = paintGround(city); fg = floor.getContext("2d"); floorCity = city; bsprites.clear(); smoke.length = 0; }
+    if (floorCity !== city) { floor = paintGround(city); fg = floor.getContext("2d"); floorCity = city; bsprites.clear(); smoke.length = 0; flames.length = 0; burning.clear(); }
     for (const f of run.fx) {
       if (f.stamped) continue;
-      if (f.type === "collapse") { f.stamped = true; paintRubble(fg, city.buildings[f.bid]); continue; }
+      if (f.type === "collapse") { f.stamped = true; paintRubble(fg, city.buildings[f.bid]); burning.set(f.bid, run.time + 9); continue; }
       if (f.type !== "boom") continue;
       f.stamped = true;
       const r = f.r + 2, x = Math.round(f.x), y = Math.round(f.y);
@@ -136,11 +142,18 @@ export function createRenderer(canvas) {
   }
 
   const stageOf = (b) => (b.hp > b.maxHp * 0.66 ? 0 : b.hp > b.maxHp * 0.33 ? 1 : 2);
-  function buildingSprite(b, stage) {
-    const k = b.id + ":" + stage;
-    if (!bsprites.has(k)) bsprites.set(k, paintBuilding(b, stage));
+  function buildingSprite(b, stage, night) {
+    const k = b.id + ":" + stage + (night ? "n" : "");
+    if (!bsprites.has(k)) bsprites.set(k, paintBuilding(b, stage, night));
     return bsprites.get(k);
   }
+
+  // Time of day: ambient colour the scene is multiplied by (null = full daylight, no light map)
+  const TOD = {
+    day: null,
+    dusk: { ambient: "#9a7c86", vig: 1 },
+    night: { ambient: "#161d31", vig: 2 },
+  };
 
   function draw(run, dt, input) {
     updateCamera(run, dt);
@@ -151,33 +164,24 @@ export function createRenderer(canvas) {
     const li = Math.floor(left), ti = Math.floor(top), fx = left - li, fy = top - ti;
     const ox = -li + 1, oy = -ti + 1;   // world -> buffer offset (integer)
     const X = (v) => Math.round(v + ox), Y = (v) => Math.round(v + oy);
-    const t = run.time, p = run.player;
+    const t = run.time, p = run.player, city = run.city, tod = TOD[run.tod] || null, night = !!tod;
+    const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
     g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
     g.fillStyle = C.void; g.fillRect(0, 0, buf.width, buf.height);
     g.drawImage(floor, ox, oy);
 
-    // ---- floor lights
-    g.globalCompositeOperation = "lighter";
-    g.drawImage(glowOf(34, run.cap.vent > 0 ? "#3a1a10" : "#18233a"), X(p.x) - 34, Y(p.y) - 30);
-    for (const b of run.bolts) g.drawImage(glowOf(8, "#4a1c0c"), X(b.x) - 8, Y(b.y) - 8);
-    for (const f of run.fx) {
-      const k = f.t / f.max;
-      if (f.type === "boom" && k > 0.4) { const r = Math.round(f.r * 3); g.drawImage(glowOf(r, "#5a2a0e"), X(f.x) - r, Y(f.y) - r); }
-      if (f.type === "muzzle") g.drawImage(glowOf(10, "#4a3a12"), X(f.x) - 10, Y(f.y) - 10);
-    }
-    g.globalCompositeOperation = "source-over";
-
-    // ---- spawn telegraphs: a reticle that closes in
-    for (const m of run.marks) {
-      const k = 1 - m.t / m.max, big = m.type === "crusher", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
-      const x = X(m.x), y = Y(m.y), blink = Math.floor(k * 12 * (1 + k)) % 2;
-      g.fillStyle = blink ? "#ff8a70" : C.danger;
-      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        g.fillRect(x + dx * s - (dx > 0 ? 2 : 0), y + dy * s, 3, 1);
-        g.fillRect(x + dx * s, y + dy * s - (dy > 0 ? 2 : 0), 1, 3);
+    // ---- daylight: a few soft floor glows (at night the light map does this job)
+    if (!night) {
+      g.globalCompositeOperation = "lighter";
+      g.drawImage(glowOf(34, run.cap.vent > 0 ? "#3a1a10" : "#18233a"), X(p.x) - 34, Y(p.y) - 30);
+      for (const b of run.bolts) g.drawImage(glowOf(8, "#4a1c0c"), X(b.x) - 8, Y(b.y) - 8);
+      for (const f of run.fx) {
+        const k = f.t / f.max;
+        if (f.type === "boom" && k > 0.4) { const r = Math.round(f.r * 3); g.drawImage(glowOf(r, "#5a2a0e"), X(f.x) - r, Y(f.y) - r); }
+        if (f.type === "muzzle") g.drawImage(glowOf(10, "#4a3a12"), X(f.x) - 10, Y(f.y) - 10);
       }
-      if (blink) g.fillRect(x, y, 1, 1);
+      g.globalCompositeOperation = "source-over";
     }
 
     // ---- salvage
@@ -189,14 +193,13 @@ export function createRenderer(canvas) {
 
     // ---- shadows, then everything that stands up, sorted by its base line. Buildings are 3/4
     // view: the roof is drawn raised by the wall height, so tall blocks hide what's behind them.
-    const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
     for (const e of run.enemies) {
       const w = e.d.r * 2 + (e.d.boss ? 2 : 0), s = shadow(w);
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
     g.drawImage(shadow(16), X(p.x) - 8, Y(p.y) + 8);
 
-    const city = run.city, items = [];
+    const items = [], shown = [];
     for (const b of city.buildings) {
       if (b.dead) continue;
       const x0 = b.x * TILE, y1 = (b.y + b.h) * TILE;
@@ -211,33 +214,78 @@ export function createRenderer(canvas) {
     for (const [, kind, o, f] of items) {
       if (kind === 0) {
         if (o.hit > 0) o.hit -= dt;
-        const spr = buildingSprite(o, stageOf(o)), jit = o.hit > 0 ? (Math.random() < 0.5 ? -1 : 1) : 0;
-        g.drawImage(spr, X(o.x * TILE) + jit, Y(o.y * TILE - wallHeight(o)));
-        if (stageOf(o) === 2 && Math.random() < dt * (1 + o.w * o.h * 0.3)) {
-          smoke.push({ x: (o.x + Math.random() * o.w) * TILE, y: (o.y + Math.random() * o.h) * TILE - wallHeight(o), t: 1.4, max: 1.4 });
+        const stage = stageOf(o), spr = buildingSprite(o, stage, night), jit = o.hit > 0 ? (Math.random() < 0.5 ? -1 : 1) : 0;
+        const bx = X(o.x * TILE) + jit, by = Y(o.y * TILE - wallHeight(o));
+        g.drawImage(spr, bx, by);
+        shown.push([o, spr, bx, by]);
+        if (stage === 2) {
+          if (Math.random() < dt * (1 + o.w * o.h * 0.3)) smoke.push({ x: (o.x + Math.random() * o.w) * TILE, y: (o.y + Math.random() * o.h) * TILE - wallHeight(o), t: 1.4, max: 1.4 });
+          if (Math.random() < dt * o.w * o.h * 0.6) flame((o.x + 0.2 + Math.random() * (o.w - 0.4)) * TILE, (o.y + 0.2 + Math.random() * (o.h - 0.4)) * TILE - wallHeight(o));
         }
       } else if (kind === 1) {   // collapsing: the building sinks into its own dust
-        const k = f.t / f.max, spr = buildingSprite(o, 2), Hw = wallHeight(o), sink = Math.round((1 - k) * (spr.height * 0.85));
+        const k = f.t / f.max, spr = buildingSprite(o, 2, night), Hw = wallHeight(o), sink = Math.round((1 - k) * (spr.height * 0.85));
         const jit = Math.random() < 0.5 ? -1 : 1;
         if (spr.height - sink > 0) g.drawImage(spr, 0, 0, spr.width, spr.height - sink, X(o.x * TILE) + jit, Y(o.y * TILE - Hw) + sink, spr.width, spr.height - sink);
       } else if (kind === 2) drawProp(o, X, Y);
       else if (kind === 3) drawEnemy(o, t, X, Y, false);
       else drawPlayer(run, X, Y);
     }
-    // x-ray: units hidden behind a building are drawn again as faint silhouettes
-    for (const e of run.enemies) if (occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
-    if (occluded(city, p.x, p.y + 8)) { g.globalAlpha = 0.6; g.drawImage(mech.xray, X(p.x) - 9, Y(p.y) - 9); g.globalAlpha = 1; }
+    // fallen buildings smoulder for a while
+    for (const [id, until] of burning) {
+      if (t > until) { burning.delete(id); continue; }
+      const b = city.buildings[id], heat = (until - t) / 9;
+      if (Math.random() < dt * b.w * b.h * 1.2 * heat) flame((b.x + Math.random() * b.w) * TILE, (b.y + Math.random() * b.h) * TILE);
+    }
 
-    // ambient smoke from wrecked buildings
+    // ambient smoke from wrecks, and non-glowing particles (dust, steam), before the light map
     for (const q of smoke) { q.t -= dt; q.y -= 9 * dt; q.x += 3 * dt; }
     for (let i = smoke.length - 1; i >= 0; i--) if (smoke[i].t <= 0) smoke.splice(i, 1);
     for (const q of smoke) {
       const k = q.t / q.max, sz = Math.round(2 + (1 - k) * 4);
       g.globalAlpha = k * 0.45; g.fillStyle = "#3a3836"; g.fillRect(X(q.x) - (sz >> 1), Y(q.y) - (sz >> 1), sz, sz);
     }
+    for (const q of run.parts) {
+      if (!q.steam) continue;
+      const k = q.t / q.max, sz = Math.round(q.size + (1 - k) * 3);
+      g.globalAlpha = k * 0.55; g.fillStyle = q.color; g.fillRect(X(q.x) - (sz >> 1), Y(q.y) - (sz >> 1), sz, sz);
+    }
     g.globalAlpha = 1;
 
-    // ---- projectiles
+    // ---- night / dusk: multiply the scene by a light map
+    if (night) {
+      drawLightMap(run, tod, X, Y, t, shown, inView);
+      g.globalCompositeOperation = "multiply";
+      g.drawImage(light, 0, 0);
+      g.globalCompositeOperation = "source-over";
+    }
+
+    // ---- everything below glows on its own, so it's drawn after the light map
+    // spawn telegraphs: a reticle that closes in
+    for (const m of run.marks) {
+      const k = 1 - m.t / m.max, big = m.type === "crusher", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
+      const x = X(m.x), y = Y(m.y), blink = Math.floor(k * 12 * (1 + k)) % 2;
+      g.fillStyle = blink ? "#ff8a70" : C.danger;
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        g.fillRect(x + dx * s - (dx > 0 ? 2 : 0), y + dy * s, 3, 1);
+        g.fillRect(x + dx * s, y + dy * s - (dy > 0 ? 2 : 0), 1, 3);
+      }
+      if (blink) g.fillRect(x, y, 1, 1);
+    }
+    // x-ray: units hidden behind a building are drawn again as faint silhouettes
+    for (const e of run.enemies) if (occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
+    if (occluded(city, p.x, p.y + 8)) { g.globalAlpha = 0.6; g.drawImage(mech.xray, X(p.x) - 9, Y(p.y) - 9); g.globalAlpha = 1; }
+
+    // fire
+    for (const q of flames) { q.t -= dt; q.y -= q.vy * dt; q.x += Math.sin(t * 7 + q.ph) * 4 * dt; }
+    for (let i = flames.length - 1; i >= 0; i--) if (flames[i].t <= 0) flames.splice(i, 1);
+    for (const q of flames) {
+      const k = q.t / q.max;
+      g.fillStyle = k > 0.75 ? "#fff1b0" : k > 0.5 ? "#ffb347" : k > 0.25 ? "#e8602c" : "#7a2a1c";
+      const sz = k > 0.5 ? 2 : 1;
+      g.fillRect(X(q.x), Y(q.y), sz, sz);
+    }
+
+    // projectiles
     for (const s of run.shots) {
       const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp;
       g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 3), Y(s.y - uy * 3), 1, 1);
@@ -251,7 +299,7 @@ export function createRenderer(canvas) {
       g.fillStyle = "#ffe0c9"; g.fillRect(x, y, 1, 1);
     }
 
-    // ---- effects
+    // effects
     for (const f of run.fx) {
       const k = f.t / f.max;   // 1 -> 0
       if (f.type === "beam") {
@@ -288,7 +336,7 @@ export function createRenderer(canvas) {
           g.fillStyle = "#ffd27a"; discPx(g, x - 1, y - 1, r * 0.6);
         } else {
           // smoke: a dithered ring that thins out and drifts up
-          g.fillStyle = e < 0.7 ? "#4a3a3a" : "#2a2530";
+          g.fillStyle = night ? (e < 0.7 ? "#2a2226" : "#17151c") : e < 0.7 ? "#4a3a3a" : "#2a2530";
           const rr = Math.round(r);
           for (let yy = -rr; yy <= rr; yy++) for (let xx = -rr; xx <= rr; xx++) {
             const d = Math.hypot(xx, yy);
@@ -299,14 +347,8 @@ export function createRenderer(canvas) {
       }
     }
     for (const q of run.parts) {
-      const k = q.t / q.max;
-      if (q.steam) {
-        g.globalAlpha = k * 0.55;
-        const s = Math.round(q.size + (1 - k) * 3);
-        g.fillStyle = q.color; g.fillRect(X(q.x) - (s >> 1), Y(q.y) - (s >> 1), s, s);
-        continue;
-      }
-      g.globalAlpha = Math.min(1, k * 2);
+      if (q.steam) continue;
+      g.globalAlpha = Math.min(1, (q.t / q.max) * 2);
       g.fillStyle = q.color; g.fillRect(X(q.x), Y(q.y), q.size, q.size);
     }
     g.globalAlpha = 1;
@@ -315,13 +357,14 @@ export function createRenderer(canvas) {
 
     // ---- bloom
     g.globalCompositeOperation = "lighter";
+    const bloom = night ? 1.6 : 1;
     for (const f of run.fx) {
       const k = f.t / f.max;
       if (f.type === "beam") {
-        const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10), gl = glowOf(9, k > 0.5 ? "#1f5a73" : "#123846");
-        for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - 9, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - 9);
+        const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10), gl = glowOf(Math.round(9 * bloom), k > 0.5 ? "#1f5a73" : "#123846"), r = gl.width >> 1;
+        for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
       } else if (f.type === "boom" && k > 0.55) {
-        const r = Math.round(f.r * 1.8); g.drawImage(glowOf(r, "#6a3410"), X(f.x) - r, Y(f.y) - r);
+        const r = Math.round(f.r * 1.8 * bloom); g.drawImage(glowOf(r, "#6a3410"), X(f.x) - r, Y(f.y) - r);
       } else if (f.type === "ring" && f.thick) {
         const r = Math.max(4, Math.round(f.r * (1 - k * k * 0.7)));
         g.drawImage(glowOf(r, "#0f2a36"), X(f.x) - r, Y(f.y) - r);
@@ -333,7 +376,7 @@ export function createRenderer(canvas) {
       g.drawImage(glowOf(r, "#0f3346"), X(p.x) - r, Y(p.y) - 3 - r);
     }
     g.globalCompositeOperation = "source-over";
-    g.drawImage(vig, 0, 0);
+    for (let i = 0; i < (tod ? tod.vig : 1); i++) g.drawImage(vig, 0, 0);
 
     // ---- blit to screen
     ctx.imageSmoothingEnabled = false;
@@ -363,6 +406,77 @@ export function createRenderer(canvas) {
       ctx.beginPath(); ctx.arc(st.ox * dpr, st.oy * dpr, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "rgba(255,255,255,0.35)";
       ctx.beginPath(); ctx.arc(st.x * dpr, st.y * dpr, r * 0.42, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function flame(x, y) {
+    if (flames.length > 400) return;
+    flames.push({ x: x + (Math.random() - 0.5) * 3, y, vy: 10 + Math.random() * 14, t: 0.35 + Math.random() * 0.4, max: 0.75, ph: Math.random() * 6 });
+  }
+
+  // The light map: ambient colour, plus every light source added on top. The scene is multiplied
+  // by it, so white = full brightness. Self-lit pixels (windows, eyes, visor) are painted white.
+  function drawLightMap(run, tod, X, Y, t, shown, inView) {
+    const p = run.player, city = run.city;
+    lg.globalCompositeOperation = "source-over";
+    lg.fillStyle = tod.ambient; lg.fillRect(0, 0, light.width, light.height);
+    lg.globalCompositeOperation = "lighter";
+    const put = (r, col, x, y) => { const s = lightOf(r, col); lg.drawImage(s, X(x) - (s.width >> 1), Y(y) - (s.height >> 1)); };
+
+    // the mech: a halo, and a searchlight that tracks what it's aiming at
+    const venting = run.cap.vent > 0;
+    put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
+    const a = p.aim, R = 96, spread = 0.42;
+    lg.save();
+    lg.beginPath(); lg.moveTo(X(p.x), Y(p.y - 4)); lg.arc(X(p.x), Y(p.y - 4), R, a - spread, a + spread); lg.closePath(); lg.clip();
+    const grad = lg.createRadialGradient(X(p.x), Y(p.y - 4), 4, X(p.x), Y(p.y - 4), R);
+    for (const [o, c] of [[0, "#b8b0a0"], [0.35, "#b8b0a0"], [0.35, "#7f796d"], [0.65, "#7f796d"], [0.65, "#45423b"], [1, "#45423b"]]) grad.addColorStop(o, c);
+    lg.fillStyle = grad; lg.fillRect(X(p.x) - R, Y(p.y - 4) - R, R * 2, R * 2);
+    lg.restore();
+    if (venting) put(14, "#7a3818", p.x, p.y - 4);
+
+    // street lamps
+    for (const pr of city.props) {
+      if (pr.type !== "lamp" || pr.broken || !inView(pr.x - 40, pr.y - 40, pr.x + 40, pr.y + 40)) continue;
+      put(26, "#4e422c", pr.x, pr.y + 4);
+      put(4, "#ffffff", pr.x, pr.y - 9);
+    }
+    // lit windows and a little spill onto the street in front
+    for (const [b, spr, bx, by] of shown) {
+      if (!spr.glow) continue;
+      lg.drawImage(spr.glow, bx, by);
+      if ((b.id % 3) === 0) put(10 + b.w * 3, "#2a2416", (b.x + b.w / 2) * TILE, (b.y + b.h) * TILE + 6);
+    }
+    // enemies: self-lit eyes (drawn white into the map) plus a faint coloured halo
+    for (const e of run.enemies) {
+      if (!inView(e.x - 20, e.y - 20, e.x + 20, e.y + 20)) continue;
+      const set = enemies[e.type], n = set.glow.length;
+      const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
+      const spr = set.glow[fi], bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
+      lg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
+      put(e.d.boss ? 30 : e.type === "spitter" ? 12 : 7, e.type === "spitter" ? "#1f3a12" : "#3a1410", e.x, e.y);
+    }
+    // the mech's visor (and grilles when venting)
+    const gset = venting ? (Math.floor(t * 10) % 2 ? mechGlow.hotA : mechGlow.hotB) : mechGlow.cold;
+    lg.drawImage(gset[p.moving ? Math.floor(t * 9) % 4 : 0], X(p.x) - 9, Y(p.y) - 9);
+    // salvage, bolts, shots
+    for (const k of run.pickups) put(6, "#1d5a34", k.x, k.y);
+    for (const b of run.bolts) put(12, "#7a3010", b.x, b.y);
+    for (const s of run.shots) put(5, "#5a4818", s.x, s.y);
+    // fire
+    for (const [id] of burning) { const b = city.buildings[id]; put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE); }
+    for (const [b] of shown) if (stageOf(b) === 2) put(12 + b.w * 3 + Math.random() * 4, "#5a260a", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
+    // weapon effects
+    for (const f of run.fx) {
+      const k = f.t / f.max;
+      if (f.type === "muzzle") put(22, "#8a7236", f.x, f.y);
+      else if (f.type === "boom") put(f.r * 5 * (0.4 + k), k > 0.5 ? "#b8601e" : "#6a2e10", f.x, f.y);
+      else if (f.type === "beam") {
+        const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 8);
+        for (let i = 0; i <= n; i++) put(22 * (0.5 + k * 0.5), "#3a8aae", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
+      } else if (f.type === "ring" && f.thick) put(f.r * (1.2 - k * 0.2), k > 0.5 ? "#2a6a8a" : "#143a4a", f.x, f.y);
+      else if (f.type === "ring") put(f.r + 6, "#5a2012", f.x, f.y);
+      else if (f.type === "swing") put(18, "#4a4440", f.x, f.y);
     }
   }
 

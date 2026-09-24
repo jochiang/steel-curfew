@@ -20,7 +20,7 @@ function pal(ramp, extra = {}) {
   return { o: OUTLINE, 1: r[0], 2: r[1], 3: r[2], 4: r[3], 5: r[4], ...extra };
 }
 
-export function build(rows, palette, { sym = false, light = false, patch = [] } = {}) {
+export function build(rows, palette, { sym = false, light = false, patch = [], only = null } = {}) {
   let grid = rows.map((r) => [...r]);
   if (sym) {
     grid = grid.map((r) => {
@@ -32,7 +32,7 @@ export function build(rows, palette, { sym = false, light = false, patch = [] } 
   const w = Math.max(...grid.map((r) => r.length)), h = grid.length;
   const c = new OffscreenCanvas(w, h), g = c.getContext("2d");
   grid.forEach((r, y) => r.forEach((ch, x) => {
-    if (ch === "." || ch === " ") return;
+    if (ch === "." || ch === " " || (only && !only.includes(ch))) return;
     const col = palette[ch];
     if (!col) throw new Error(`no colour for '${ch}'`);
     g.fillStyle = col; g.fillRect(x, y, 1, 1);
@@ -82,15 +82,17 @@ function legsRows(liftL, liftR) {
   return rows.map((r) => r.join(""));
 }
 
-export function mechFrames(hot, ventPhase = 0) {
+/** Mech frames. With glow, only the self-lit pixels (visor, and hot grilles) for night scenes. */
+export function mechFrames(hot, ventPhase = 0, glow = false) {
   const vent = hot ? (ventPhase ? "#ffd27a" : "#ff8a4c") : "#20242c";
   const p = pal(hot ? "hot" : "steel", { v: vent, a: "#8f3e2c", b: "#d97757", c: "#ffc2a6" });
-  const torso = build(TORSO, p, { sym: true, light: true, patch: [[7, 4, "c"], [8, 4, "c"]] });
+  const only = glow ? (hot ? "bcv" : "bc") : null;
+  const torso = build(TORSO, p, { sym: true, light: true, patch: [[7, 4, "c"], [8, 4, "c"]], only });
   // walk cycle: plant, left up, plant (bob), right up
   const cycle = [[0, 0, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0]];
   return cycle.map(([l, r, bob]) => {
     const c = new OffscreenCanvas(19, 19), g = c.getContext("2d");
-    g.drawImage(build(legsRows(l, r), p), 0, 10 + 0);
+    if (!glow) g.drawImage(build(legsRows(l, r), p), 0, 10);
     g.drawImage(torso, 0, bob);
     return c;
   });
@@ -169,24 +171,26 @@ const CRUSHER = [
 
 const EYE = { e: "#ff6a3c", E: "#ffe8b8" };
 
-export function enemyFrames(type) {
+/** Enemy frames. With glow, only the self-lit pixels (eyes, lens, acid sac, furnace). */
+export function enemyFrames(type, glow = false) {
+  const o = (only) => ({ sym: true, light: true, only: glow ? only : null });
   switch (type) {
-    case "drone": return [build(DRONE, pal("rust", EYE), { sym: true, light: true })];
-    case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), { sym: true, light: true }));
-    case "brute": return [build(BRUTE, pal("violet", EYE), { sym: true, light: true })];
-    case "spitter": return [0, 1].map((k) => build(SPITTER, pal("moss", { g: k ? "#b7f07a" : "#8fd65e", G: k ? "#f2ffc4" : "#d8ff9a", e: "#1c3a22", E: "#e8ffd0", M: "#0f1f14" }), { sym: true, light: true }));
+    case "drone": return [build(DRONE, pal("rust", EYE), o("eE"))];
+    case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), o("E")));
+    case "brute": return [build(BRUTE, pal("violet", EYE), o("eE"))];
+    case "spitter": return [0, 1].map((k) => build(SPITTER, pal("moss", { g: k ? "#b7f07a" : "#8fd65e", G: k ? "#f2ffc4" : "#d8ff9a", e: "#1c3a22", E: "#e8ffd0", M: "#0f1f14" }), o("gGE")));
     case "crusher": return [0, 1].map((k) => build(CRUSHER, pal("crimson", {
       ...EYE, F: k ? "#ffd27a" : "#ff9a4c", f: k ? "#ff7a3c" : "#c9502e", t: "#1d1a22", T: k ? "#3b3744" : "#2b2833",
-    }), { sym: true, light: true }));
+    }), o("eEFf")));
   }
   throw new Error(type);
 }
 
 // ---------------------------------------------------------------- effects
 /** Banded radial glow (pixel-art style: a few hard alpha steps rather than a smooth falloff) */
-export function glow(radius, color) {
+export function glow(radius, color, strong = false) {
   const s = radius * 2 + 1, c = new OffscreenCanvas(s, s), g = c.getContext("2d");
-  const bands = [[1, 0.1], [0.7, 0.18], [0.45, 0.3], [0.22, 0.45]];
+  const bands = strong ? [[1, 0.35], [0.72, 0.6], [0.45, 0.85], [0.22, 1]] : [[1, 0.1], [0.7, 0.18], [0.45, 0.3], [0.22, 0.45]];
   g.fillStyle = color;
   for (const [k, a] of bands) {
     g.globalAlpha = a;

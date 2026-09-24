@@ -238,7 +238,7 @@ export function updateHud(run) {
   const left = Math.max(0, Math.ceil(WAVES[run.wave].duration - run.waveTime));
   set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
   const banner = run.clearing > 0 ? (run.wave >= WAVES.length - 1 ? "Arena cleared" : "Wave cleared")
-    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}` : "";
+    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}${run.tod === "day" ? "" : ` · ${run.tod}`}` : "";
   set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
   set("boss", !!boss, (v) => (hud.boss.hidden = !v));

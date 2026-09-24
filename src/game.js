@@ -33,9 +33,12 @@ function near(x, y, r, fn) {
 }
 
 // ---------------------------------------------------------------- run setup
-export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all", targeting = "crowd" } = {}) {
+export const TIMES_OF_DAY = ["day", "dusk", "night"];
+export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all", targeting = "crowd", tod = null } = {}) {
+  const todRoll = mulberry32((seed ^ 0x51ed27) >>> 0)();   // own stream, so it doesn't shift the game's rng
   const run = {
     rand: mulberry32(seed), seed, ventMode, targeting,
+    tod: TIMES_OF_DAY.includes(tod) ? tod : todRoll < 0.4 ? "day" : todRoll < 0.62 ? "dusk" : "night",
     chassis: CHASSIS.warden,
     phase: "combat", wave: 0, time: 0, waveTime: 0,
     salvage: 0, kills: 0,
