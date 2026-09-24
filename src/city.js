@@ -53,6 +53,7 @@ export function generateCity(seed) {
     const height = landmark ? 4 : area >= 9 ? (rand() < 0.45 ? 3 : 2) : area >= 6 ? (rand() < 0.35 ? 2 : 1) : 1;
     const maxHp = Math.round(area * 24 * (0.6 + 0.35 * height) * (landmark ? 1.6 : 1));
     const b = { id: buildings.length, x: x0, y: y0, w, h, height, style: landmark ? 6 : ri(0, BUILDING_STYLES - 1), hp: maxHp, maxHp, dead: false, seed: ri(0, 1e9), landmark };
+    if (!landmark && w >= 2 && rand() < 0.32) b.neon = { color: ri(0, 3), at: rand() };   // a lit shop sign
     buildings.push(b);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { tile[idx(x, y)] = T.BUILDING; bid[idx(x, y)] = b.id; }
   }
@@ -137,9 +138,9 @@ export function generateCity(seed) {
     const i = idx(x, y), cx = (x + 0.5) * TILE, cy = (y + 0.5) * TILE;
     if (inPlaza(x, y)) continue;
     if ((roadDir[i] === 1 || roadDir[i] === 2) && rand() < 0.03 && !near(cx, cy, TILE * 2.5)) {
-      props.push({ type: "car", x: cx, y: cy, dir: roadDir[i] === 1 ? 0 : 1, color: ri(0, 5), broken: false });
+      props.push({ type: "car", x: cx, y: cy, dir: roadDir[i] === 1 ? 0 : 1, color: ri(0, 5), broken: false, lights: rand() < 0.45, face: rand() < 0.5 ? 1 : -1 });
     }
-    if (ground[i] === G.SIDEWALK && rand() < 0.045 && !near(cx, cy, TILE * 3)) props.push({ type: "lamp", x: cx, y: cy, broken: false });
+    if (ground[i] === G.SIDEWALK && rand() < 0.07 && !near(cx, cy, TILE * 2.5)) props.push({ type: "lamp", x: cx, y: cy, broken: false });
   }
 
   return {

@@ -3,7 +3,7 @@ import { weaponsOffline } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
-import { paintGround, paintBuilding, paintRubble, propSprites } from "./cityart.js";
+import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 
 // The world is drawn into a small buffer (about 200 game px on the short side) and blown up by an
 // integer factor, so pixels stay square. The camera moves smoothly: the buffer is drawn one pixel
@@ -152,7 +152,7 @@ export function createRenderer(canvas) {
   const TOD = {
     day: null,
     dusk: { ambient: "#9a7c86", vig: 1 },
-    night: { ambient: "#161d31", vig: 2 },
+    night: { ambient: "#1c2439", vig: 2 },
   };
 
   function draw(run, dt, input) {
@@ -435,17 +435,30 @@ export function createRenderer(canvas) {
     lg.restore();
     if (venting) put(14, "#7a3818", p.x, p.y - 4);
 
-    // street lamps
+    // street lamps and parked cars with their lights on
     for (const pr of city.props) {
-      if (pr.type !== "lamp" || pr.broken || !inView(pr.x - 40, pr.y - 40, pr.x + 40, pr.y + 40)) continue;
-      put(26, "#4e422c", pr.x, pr.y + 4);
-      put(4, "#ffffff", pr.x, pr.y - 9);
+      if (pr.broken || !inView(pr.x - 40, pr.y - 40, pr.x + 40, pr.y + 40)) continue;
+      if (pr.type === "lamp") {
+        put(32, "#5a4c32", pr.x, pr.y + 4);
+        put(14, "#3c3322", pr.x, pr.y + 2);
+        put(4, "#ffffff", pr.x, pr.y - 9);
+      } else if (pr.type === "car" && pr.lights) {
+        const fx = pr.dir ? pr.face : 0, fy = pr.dir ? 0 : pr.face;
+        put(16, "#4a4632", pr.x + fx * 16, pr.y + fy * 16);
+        put(3, "#ffffff", pr.x + fx * 5, pr.y + fy * 5);
+        put(5, "#5a1010", pr.x - fx * 6, pr.y - fy * 6);
+      }
     }
-    // lit windows and a little spill onto the street in front
+    // lit windows and neon signs, spilling onto the street in front
     for (const [b, spr, bx, by] of shown) {
       if (!spr.glow) continue;
       lg.drawImage(spr.glow, bx, by);
-      if ((b.id % 3) === 0) put(10 + b.w * 3, "#2a2416", (b.x + b.w / 2) * TILE, (b.y + b.h) * TILE + 6);
+      const sx = (b.x + b.w / 2) * TILE, sy = (b.y + b.h) * TILE + 7;
+      if (spr.lit) put(8 + b.w * 3 + spr.lit * 0.4, "#2c2618", sx, sy);
+      if (b.neon && stageOf(b) < 2) {
+        const c = NEON[b.neon.color], dim = "#" + [1, 3, 5].map((i) => Math.round(parseInt(c.slice(i, i + 2), 16) * 0.3).toString(16).padStart(2, "0")).join("");
+        put(18, dim, b.x * TILE + 3 + b.neon.at * (b.w * TILE - 6), sy);
+      }
     }
     // enemies: self-lit eyes (drawn white into the map) plus a faint coloured halo
     for (const e of run.enemies) {

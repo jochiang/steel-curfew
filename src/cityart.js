@@ -113,6 +113,7 @@ export function paintRubble(g, b, seedExtra = 0) {
 }
 
 // ---------------------------------------------------------------- buildings
+export const NEON = ["#ff4fa3", "#3fe0ff", "#ffb040", "#6dff8a"];
 export const STYLES = [
   { roof: "#676a71", roofLight: "#7d8088", roofDark: "#50535a", wall: "#484b53", wallDark: "#383b42", win: "#1d2636", winLit: "#e8c877", trim: "#8a8e96" },
   { roof: "#6b4c42", roofLight: "#80604f", roofDark: "#533932", wall: "#6a3c31", wallDark: "#512e26", win: "#221a1c", winLit: "#f0c070", trim: "#9a7a6a" },
@@ -174,6 +175,14 @@ export function paintBuilding(b, stage, night = false) {
     if (on) lit.push([wx, wy]);
   }
   for (let dx = 4; dx < W - 6; dx += 11) px(g, "#15131b", dx, H + Hw - 3, 3, 3);   // doorways
+  // shop sign: dull by day, lit at night
+  let sign = null;
+  if (b.neon && stage < 2) {
+    const sw = Math.min(9, W - 6), sx = 3 + Math.round(b.neon.at * (W - 6 - sw)), sy = H + Hw - 6;
+    px(g, OUTLINE, sx - 1, sy - 1, sw + 2, 3);
+    px(g, night ? NEON[b.neon.color] : "#5a5560", sx, sy, sw, 1);
+    sign = [sx, sy, sw];
+  }
   // damage
   if (stage >= 1) {
     for (let k = 0; k < 2 + b.w; k++) {   // cracks
@@ -197,6 +206,8 @@ export function paintBuilding(b, stage, night = false) {
   if (night) {
     const m = new OffscreenCanvas(W, H + Hw), mg = m.getContext("2d");
     for (const [wx, wy] of lit) px(mg, "#ffffff", wx, wy, 3, 2);
+    if (sign) px(mg, "#ffffff", sign[0], sign[1], sign[2], 1);
+    c.lit = lit.length;
     c.glow = m;
   }
   return c;
