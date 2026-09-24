@@ -1,0 +1,497 @@
+import {
+  ARENA, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
+  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+} from "./content.js";
+
+// ---------------------------------------------------------------- utils
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const angDiff = (a, b) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+const pick = (rand, pool) => {
+  let t = pool.reduce((s, [, w]) => s + w, 0) * rand();
+  for (const [k, w] of pool) if ((t -= w) <= 0) return k;
+  return pool[pool.length - 1][0];
+};
+
+// ---------------------------------------------------------------- spatial grid (enemies)
+const CELL = 32, COLS = Math.ceil(ARENA.w / CELL), ROWS = Math.ceil(ARENA.h / CELL);
+const grid = Array.from({ length: COLS * ROWS }, () => []);
+function buildGrid(enemies) {
+  for (const c of grid) c.length = 0;
+  for (const e of enemies) {
+    const cx = clamp((e.x / CELL) | 0, 0, COLS - 1), cy = clamp((e.y / CELL) | 0, 0, ROWS - 1);
+    grid[cy * COLS + cx].push(e);
+  }
+}
+function near(x, y, r, fn) {
+  const x0 = clamp(((x - r) / CELL) | 0, 0, COLS - 1), x1 = clamp(((x + r) / CELL) | 0, 0, COLS - 1);
+  const y0 = clamp(((y - r) / CELL) | 0, 0, ROWS - 1), y1 = clamp(((y + r) / CELL) | 0, 0, ROWS - 1);
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) for (const e of grid[cy * COLS + cx]) fn(e);
+}
+
+// ---------------------------------------------------------------- run setup
+export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all" } = {}) {
+  const run = {
+    rand: mulberry32(seed), seed, ventMode,
+    chassis: CHASSIS.warden,
+    phase: "combat", wave: 0, time: 0, waveTime: 0,
+    salvage: 0, kills: 0,
+    weapons: [], modules: [],
+    player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
+    cap: { charge: 0, vent: 0, ventMax: 1 },
+    enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
+    shake: 0, spawnT: 0, bossSpawned: false,
+    shop: { offers: [], rerolls: 0 },
+    stats: null, load: 0,
+  };
+  addWeapon(run, start, 0);
+  recompute(run);
+  startWave(run);
+  return run;
+}
+
+function addWeapon(run, key, tier) {
+  run.weapons.push({ key, tier, cd: 0, mag: WEAPONS[key].mag || 0, reloadT: 0 });
+}
+
+export function recompute(run) {
+  const s = {
+    maxHp: run.chassis.hp, armor: 0, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
+    rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
+  };
+  for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
+  run.stats = s;
+  run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
+}
+
+export function startWave(run) {
+  const p = run.player;
+  Object.assign(p, { x: ARENA.w / 2, y: ARENA.h / 2, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
+  Object.assign(run.cap, { charge: 0, vent: 0 });
+  for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
+  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
+  run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat";
+}
+
+// ---------------------------------------------------------------- derived numbers (also used by UI)
+export const famDmg = (s, fam) => 1 + (fam === "ballistic" ? s.dmgBallistic : fam === "energy" ? s.dmgEnergy : s.dmgMelee);
+export const weaponDmg = (run, w) => WEAPONS[w.key].dmg * TIER_DMG[w.tier] * famDmg(run.stats, WEAPONS[w.key].family);
+export const speedOf = (run) => run.chassis.speed * loadSpeed(run.load, run.chassis.capacity) * (1 + run.stats.speedMul);
+export function capTimes(run) {
+  const en = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
+  if (!en.length) return null;
+  const heat = en.reduce((t, w) => t + WEAPONS[w.key].heat, 0);
+  return {
+    fill: (HEAT.baseFill + HEAT.perExtraFill * (en.length - 1)) * Math.max(0.3, 1 + run.stats.fillMul),
+    vent: (HEAT.baseVent + HEAT.ventPerHeat * heat) * Math.max(0.3, 1 + run.stats.ventMul),
+  };
+}
+export const weaponsOffline = (run) =>
+  run.cap.vent > 0 && run.ventMode === "all" && !run.stats.isolatedLoops;
+
+// ---------------------------------------------------------------- simulation
+export function update(run, dt, move) {
+  if (run.phase !== "combat") return;
+  const s = run.stats, p = run.player, rand = run.rand, wave = WAVES[run.wave];
+  run.time += dt; run.waveTime += dt;
+
+  // --- player movement
+  const venting = run.cap.vent > 0;
+  const spd = speedOf(run) * (venting ? 1 + s.ventSpeed : 1);
+  p.moving = move.x !== 0 || move.y !== 0;
+  p.x = clamp(p.x + move.x * spd * dt, run.chassis.radius, ARENA.w - run.chassis.radius);
+  p.y = clamp(p.y + move.y * spd * dt, run.chassis.radius, ARENA.h - run.chassis.radius);
+  if (p.moving) p.moveAngle = Math.atan2(move.y, move.x);
+  p.iframes -= dt; p.hurt = Math.max(0, p.hurt - dt);
+  p.hp = Math.min(s.maxHp, p.hp + s.regen * dt);
+
+  // --- spawning: telegraph marks first, enemies appear when they expire
+  if (run.waveTime < wave.duration - 1.5) {
+    run.spawnT -= dt;
+    if (run.spawnT <= 0) {
+      run.spawnT = wave.interval;
+      const n = wave.group + Math.floor(run.waveTime / 12);
+      const c = spawnPoint(run, 110);
+      for (let i = 0; i < n && run.enemies.length + run.marks.length < MAX_ENEMIES; i++) {
+        run.marks.push({
+          x: clamp(c.x + (rand() - 0.5) * 36, 10, ARENA.w - 10),
+          y: clamp(c.y + (rand() - 0.5) * 36, 10, ARENA.h - 10),
+          t: 0.9, max: 0.9, type: pick(rand, wave.pool),
+        });
+      }
+    }
+  }
+  if (wave.boss && !run.bossSpawned && run.waveTime > 3) {
+    run.bossSpawned = true;
+    const c = spawnPoint(run, 180);
+    run.marks.push({ ...c, t: 1.6, max: 1.6, type: wave.boss });
+  }
+  for (const m of run.marks) {
+    if ((m.t -= dt) > 0) continue;
+    const d = ENEMIES[m.type], hp = d.hp * waveHpMul(run.wave);
+    run.enemies.push({ type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, shootT: (d.shootEvery || d.burstEvery || 0) * (0.5 + rand() * 0.5), dead: false });
+  }
+  run.marks = run.marks.filter((m) => m.t > 0);
+
+  // --- enemies
+  const kbDecay = Math.exp(-8 * dt);
+  for (const e of run.enemies) {
+    const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
+    let dir = 1;
+    if (d.keepAway && dist < d.keepAway) dir = -0.6;
+    e.x += ((dx / dist) * d.speed * dir + e.kx) * dt;
+    e.y += ((dy / dist) * d.speed * dir + e.ky) * dt;
+    e.kx *= kbDecay; e.ky *= kbDecay;
+    e.flash -= dt;
+    if (d.shootEvery && (e.shootT -= dt) <= 0) {
+      e.shootT = d.shootEvery;
+      run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
+    }
+    if (d.burstEvery && (e.shootT -= dt) <= 0) {
+      e.shootT = d.burstEvery;
+      const off = rand() * Math.PI;
+      for (let i = 0; i < d.burstCount; i++) {
+        const a = off + (i / d.burstCount) * Math.PI * 2;
+        run.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * d.boltSpeed, vy: Math.sin(a) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
+      }
+      run.fx.push({ type: "ring", x: e.x, y: e.y, r: d.r + 10, t: 0.3, max: 0.3, color: "#ff6b5a" });
+    }
+  }
+  buildGrid(run.enemies);
+  // separation: push overlapping enemies apart, heavier ones move less
+  for (const e of run.enemies) {
+    near(e.x, e.y, e.d.r + 16, (o) => {
+      if (o === e) return;
+      const dx = o.x - e.x, dy = o.y - e.y, min = e.d.r + o.d.r, d2 = dx * dx + dy * dy;
+      if (d2 >= min * min || d2 === 0) return;
+      const d = Math.sqrt(d2), push = (min - d) / 2, me = e.d.mass || 1, mo = o.d.mass || 1;
+      const fe = mo / (me + mo), fo = me / (me + mo);
+      e.x -= (dx / d) * push * fe; e.y -= (dy / d) * push * fe;
+      o.x += (dx / d) * push * fo; o.y += (dy / d) * push * fo;
+    });
+  }
+  for (const e of run.enemies) {
+    e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
+    const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
+    if (dx * dx + dy * dy < r * r) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave));
+  }
+
+  // --- aim: face the nearest enemy, else the travel direction
+  const nearest = nearestEnemy(run, 999);
+  p.aim = nearest ? Math.atan2(nearest.y - p.y, nearest.x - p.x) : (p.moveAngle ?? 0);
+
+  // --- ballistic + melee
+  const offline = weaponsOffline(run);
+  for (const w of run.weapons) {
+    const def = WEAPONS[w.key];
+    w.cd -= dt;
+    if (def.family === "ballistic") {
+      if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) w.mag = def.mag;
+      if (offline || w.reloadT > 0 || w.cd > 0) continue;
+      const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
+      if (!t) continue;
+      const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
+      for (let i = 0; i < def.pellets; i++) {
+        const a = base + (rand() - 0.5) * def.spread * (def.pellets > 1 ? 1 : 2);
+        const sp = def.speed * (def.pellets > 1 ? 0.85 + rand() * 0.3 : 1);
+        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp });
+      }
+      run.fx.push({ type: "muzzle", x: p.x + Math.cos(base) * 9, y: p.y + Math.sin(base) * 9, t: 0.05, max: 0.05 });
+      w.cd = def.interval;
+      if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
+    } else if (def.family === "melee") {
+      if (offline || w.cd > 0) continue;
+      const reach = def.reach * (1 + s.rangeMul) + run.chassis.radius;
+      const t = nearestEnemy(run, reach + 10);
+      if (!t || Math.hypot(t.x - p.x, t.y - p.y) > reach + t.d.r) continue;
+      const a = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
+      near(p.x, p.y, reach + 20, (e) => {
+        const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
+        if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
+        hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock);
+      });
+      run.fx.push({ type: "swing", x: p.x, y: p.y, a, arc: def.arc, reach, t: 0.14, max: 0.14, heavy: w.key === "fist" });
+      w.cd = def.cooldown;
+    }
+  }
+
+  // --- energy: shared capacitor -> alpha strike -> vent
+  const times = capTimes(run), cap = run.cap;
+  if (!times) { cap.charge = 0; cap.vent = 0; }
+  else if (cap.vent > 0) {
+    cap.vent -= dt;
+    if (rand() < dt * 30) steam(run);
+    if (cap.vent <= 0) { cap.vent = 0; cap.charge = 0; }
+  } else {
+    cap.charge = Math.min(1, cap.charge + dt / times.fill);
+    const energy = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
+    if (cap.charge >= 1 && energy.some((w) => nearestEnemy(run, WEAPONS[w.key].range * (1 + s.rangeMul)))) {
+      for (const w of energy) discharge(run, w);
+      cap.vent = cap.ventMax = times.vent;
+      run.shake = Math.max(run.shake, 5);
+      if (s.ventBurst) {
+        near(p.x, p.y, 60, (e) => {
+          const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+          if (d < 45 + e.d.r) hitEnemy(run, e, s.ventBurst * waveHpMul(run.wave) * 0.8, (dx / d) * 80, (dy / d) * 80);
+        });
+        run.fx.push({ type: "ring", x: p.x, y: p.y, r: 45, t: 0.35, max: 0.35, color: "#ffb36b" });
+      }
+    }
+  }
+
+  // --- player shots
+  for (const sh of run.shots) {
+    sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.life -= dt;
+    if (sh.life <= 0) continue;
+    let hit = null;
+    near(sh.x, sh.y, 20, (e) => {
+      if (hit || e.dead) return;
+      const dx = e.x - sh.x, dy = e.y - sh.y, r = e.d.r + 1.5;
+      if (dx * dx + dy * dy < r * r) hit = e;
+    });
+    if (hit) {
+      const sp = Math.hypot(sh.vx, sh.vy);
+      hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
+      sh.life = 0;
+    }
+  }
+  run.shots = run.shots.filter((sh) => sh.life > 0);
+
+  // --- enemy bolts
+  for (const b of run.bolts) {
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    const dx = p.x - b.x, dy = p.y - b.y, r = run.chassis.radius + 2.5;
+    if (dx * dx + dy * dy < r * r) { hurtPlayer(run, b.dmg); b.dead = true; }
+    if (b.x < -10 || b.y < -10 || b.x > ARENA.w + 10 || b.y > ARENA.h + 10) b.dead = true;
+  }
+  run.bolts = run.bolts.filter((b) => !b.dead);
+  run.enemies = run.enemies.filter((e) => !e.dead);
+
+  // --- salvage pickups
+  for (const k of run.pickups) {
+    const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
+    if (d < s.pickup) k.pull = true;
+    if (k.pull) { k.v = Math.min(400, k.v + 900 * dt); k.x += (dx / d) * k.v * dt; k.y += (dy / d) * k.v * dt; }
+    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; }
+  }
+  run.pickups = run.pickups.filter((k) => !k.got);
+
+  tickFx(run, dt);
+
+  if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; return; }
+  if (run.waveTime >= wave.duration) endWave(run);
+}
+
+function spawnPoint(run, minDist) {
+  const p = run.player;
+  for (let i = 0; i < 30; i++) {
+    const x = 24 + run.rand() * (ARENA.w - 48), y = 24 + run.rand() * (ARENA.h - 48);
+    if (Math.hypot(x - p.x, y - p.y) >= minDist) return { x, y };
+  }
+  return { x: p.x < ARENA.w / 2 ? ARENA.w - 30 : 30, y: p.y < ARENA.h / 2 ? ARENA.h - 30 : 30 };
+}
+
+function nearestEnemy(run, range) {
+  const p = run.player;
+  let best = null, bd = range * range;
+  for (const e of run.enemies) {
+    if (e.dead) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
+    if (d2 < bd) { bd = d2; best = e; }
+  }
+  return best;
+}
+
+function discharge(run, w) {
+  const def = WEAPONS[w.key], p = run.player, s = run.stats, dmg = weaponDmg(run, w);
+  const range = def.range * (1 + s.rangeMul);
+  if (def.kind === "nova") {
+    near(p.x, p.y, range + 20, (e) => {
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      if (d < range + e.d.r) hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock);
+    });
+    run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
+    return;
+  }
+  // beam: pick the direction through the most enemies (candidates = up to 40 nearest in range)
+  const cands = run.enemies
+    .filter((e) => !e.dead)
+    .map((e) => [e, Math.hypot(e.x - p.x, e.y - p.y)])
+    .filter(([, d]) => d < range)
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 40);
+  let bestA = p.aim, bestN = -1;
+  for (const [c] of cands) {
+    const a = Math.atan2(c.y - p.y, c.x - p.x), n = beamHits(run, a, range, def.width).length;
+    if (n > bestN) { bestN = n; bestA = a; }
+  }
+  for (const e of beamHits(run, bestA, range, def.width)) hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60);
+  run.fx.push({ type: "beam", x1: p.x, y1: p.y, x2: p.x + Math.cos(bestA) * range, y2: p.y + Math.sin(bestA) * range, w: def.width, t: 0.3, max: 0.3 });
+  p.aim = bestA;
+}
+
+function beamHits(run, a, range, width) {
+  const p = run.player, cx = Math.cos(a), cy = Math.sin(a), out = [];
+  for (const e of run.enemies) {
+    if (e.dead) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, along = dx * cx + dy * cy;
+    if (along < 0 || along > range + e.d.r) continue;
+    if (Math.abs(dx * cy - dy * cx) <= width / 2 + e.d.r) out.push(e);
+  }
+  return out;
+}
+
+function hitEnemy(run, e, dmg, kx, ky) {
+  if (e.dead) return;
+  e.hp -= dmg; e.flash = 0.08;
+  const m = e.d.mass || 1;
+  e.kx += kx / m; e.ky += ky / m;
+  run.texts.push({ x: e.x + (run.rand() - 0.5) * 6, y: e.y - e.d.r, n: Math.round(dmg), t: 0.6, max: 0.6 });
+  if (e.hp > 0) return;
+  e.dead = true; run.kills++;
+  for (let i = 0; i < 7 + e.d.r; i++) {
+    const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
+    run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0) });
+  }
+  let n = e.d.salvage;
+  while (n > 0) {
+    const v = n >= 5 ? 5 : 1; n -= v;
+    run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
+  }
+  if (e.d.boss) run.shake = Math.max(run.shake, 8);
+}
+
+function hurtPlayer(run, dmg) {
+  const p = run.player;
+  if (p.iframes > 0) return;
+  p.hp -= dmg * armorMul(run.stats.armor);
+  p.iframes = PLAYER_IFRAMES; p.hurt = 0.3;
+  run.shake = Math.max(run.shake, 3);
+}
+
+function steam(run) {
+  const p = run.player, a = -Math.PI / 2 + (run.rand() - 0.5) * 1.6;
+  run.parts.push({ x: p.x + (run.rand() - 0.5) * 10, y: p.y - 4, vx: Math.cos(a) * 25, vy: Math.sin(a) * 30, t: 0.6, max: 0.6, color: "#dfe7ee", size: 2, steam: true });
+}
+
+function tickFx(run, dt) {
+  for (const f of run.fx) f.t -= dt;
+  run.fx = run.fx.filter((f) => f.t > 0);
+  for (const q of run.parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.92; q.vy *= 0.92; q.t -= dt; }
+  run.parts = run.parts.filter((q) => q.t > 0);
+  for (const t of run.texts) { t.y -= 18 * dt; t.t -= dt; }
+  run.texts = run.texts.filter((t) => t.t > 0);
+  run.shake = Math.max(0, run.shake - dt * 20);
+}
+
+function endWave(run) {
+  run.salvage += run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
+  for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
+  if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
+  run.phase = "hangar";
+  run.shop.rerolls = 0;
+  rollOffers(run);
+}
+
+export function nextWave(run) {
+  run.wave++;
+  startWave(run);
+}
+
+// ---------------------------------------------------------------- hangar / shop
+export const weaponPrice = (key, tier, wave) => Math.round(WEAPONS[key].price * TIER_PRICE[tier] * SHOP.priceWaveMul(wave));
+export const modulePrice = (key, wave) => Math.round(MODULES[key].price * SHOP.priceWaveMul(wave));
+export const rerollCost = (run) => SHOP.rerollBase + SHOP.rerollStep * run.shop.rerolls + run.wave;
+
+export function rollOffers(run) {
+  const kept = run.shop.offers.filter((o) => o.locked);
+  const out = [...kept];
+  const w = run.wave + 1;   // the wave about to be fought (0-based)
+  let guard = 0;
+  while (out.length < SHOP.offers && guard++ < 100) {
+    let o;
+    if (run.rand() < 0.5) {
+      const key = pick(run.rand, Object.keys(WEAPONS).map((k) => [k, 1]));
+      const r = run.rand();
+      const tier = r < 0.07 * Math.max(0, w - 2) ? 2 : r < 0.14 * w ? 1 : 0;
+      o = { kind: "weapon", key, tier, price: weaponPrice(key, tier, run.wave) };
+    } else {
+      const key = pick(run.rand, Object.keys(MODULES).map((k) => [k, 1]));
+      if (MODULES[key].unique && run.modules.includes(key)) continue;
+      o = { kind: "module", key, tier: 0, price: modulePrice(key, run.wave) };
+    }
+    if (out.some((x) => x.kind === o.kind && x.key === o.key && x.tier === o.tier)) continue;
+    out.push({ ...o, locked: false, sold: false });
+  }
+  run.shop.offers = out;
+}
+
+/** Why an offer can't be bought, or null */
+export function blocked(run, o) {
+  if (o.sold) return "Sold";
+  if (run.salvage < o.price) return "Can't afford";
+  if (o.kind === "module") {
+    if (MODULES[o.key].unique && run.modules.includes(o.key)) return "Installed";
+    if (run.load + MODULES[o.key].weight > run.chassis.capacity) return "Over tonnage";
+    return null;
+  }
+  const merge = run.weapons.length >= run.chassis.slots;
+  if (merge) return run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3) ? null : "Slots full";
+  if (run.load + WEAPONS[o.key].weight > run.chassis.capacity) return "Over tonnage";
+  return null;
+}
+
+export function buy(run, i) {
+  const o = run.shop.offers[i];
+  if (!o || blocked(run, o)) return false;
+  run.salvage -= o.price;
+  if (o.kind === "module") run.modules.push(o.key);
+  else if (run.weapons.length < run.chassis.slots) addWeapon(run, o.key, o.tier);
+  else run.weapons.find((w) => w.key === o.key && w.tier === o.tier).tier++;
+  o.sold = true; o.locked = false;
+  recompute(run);
+  return true;
+}
+
+export function reroll(run) {
+  const c = rerollCost(run);
+  if (run.salvage < c) return false;
+  run.salvage -= c; run.shop.rerolls++;
+  run.shop.offers = run.shop.offers.filter((o) => o.locked && !o.sold);
+  rollOffers(run);
+  return true;
+}
+
+export const combinable = (run, i) => {
+  const w = run.weapons[i];
+  return w.tier < 3 && run.weapons.some((o, j) => j !== i && o.key === w.key && o.tier === w.tier);
+};
+
+export function combine(run, i) {
+  if (!combinable(run, i)) return false;
+  const w = run.weapons[i];
+  const j = run.weapons.findIndex((o, j) => j !== i && o.key === w.key && o.tier === w.tier);
+  w.tier++;
+  run.weapons.splice(j, 1);
+  recompute(run);
+  return true;
+}
+
+export const sellValue = (run, i) => Math.floor(weaponPrice(run.weapons[i].key, run.weapons[i].tier, run.wave) * SHOP.sellFrac);
+
+export function sell(run, i) {
+  if (run.weapons.length <= 1) return false;
+  run.salvage += sellValue(run, i);
+  run.weapons.splice(i, 1);
+  recompute(run);
+  return true;
+}

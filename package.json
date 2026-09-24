@@ -1,0 +1,17 @@
+{
+  "name": "mech-arena",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5391 --strictPort --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --port 5392 --strictPort --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@fontsource/pixelify-sans": "^5.3.0"
+  }
+}
