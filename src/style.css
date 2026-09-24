@@ -207,6 +207,15 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
   display: flex; align-items: center; justify-content: center; gap: 5px;
 }
 .pause i { width: 4px; height: 14px; background: var(--text); }
+.banner {
+  position: fixed; left: 0; right: 0; top: 24%; text-align: center; pointer-events: none;
+  font-family: var(--px); font-weight: 700; font-size: clamp(34px, 9vw, 64px); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text); opacity: 0; transform: translateY(8px) scale(0.96);
+  transition: opacity 0.25s, transform 0.35s cubic-bezier(.2,1.4,.4,1);
+  text-shadow: 0 3px 0 #000, 0 0 18px rgba(0,0,0,0.7);
+}
+.banner.show { opacity: 1; transform: none; }
+.banner.clear { color: var(--salvage); }
 .boss { grid-column: 1 / -1; justify-self: center; width: min(420px, 80vw); text-align: center; margin-top: 4px; }
 .boss span { font-size: 13px; color: var(--danger); letter-spacing: 0.14em; text-transform: uppercase; }
 .boss .bar { height: 8px; margin-top: 3px; }

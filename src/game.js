@@ -49,7 +49,7 @@ export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "al
     player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
-    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false,
+    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
     stats: null, load: 0,
@@ -80,7 +80,7 @@ export function startWave(run) {
   Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
   for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
-  run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat";
+  run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
 }
 
@@ -116,6 +116,15 @@ export function update(run, dt, move) {
   if (p.moving) p.moveAngle = Math.atan2(move.y, move.x);
   p.iframes -= dt; p.hurt = Math.max(0, p.hurt - dt);
   p.hp = Math.min(s.maxHp, p.hp + s.regen * dt);
+
+  // --- wave over: everything left blows up, salvage flies home, then the hangar
+  if (run.clearing > 0) {
+    if (run.cap.vent > 0) run.cap.vent = Math.max(0, run.cap.vent - dt);
+    tickPickups(run, dt);
+    tickFx(run, dt);
+    if ((run.clearing -= dt) <= 0) endWave(run);
+    return;
+  }
 
   // --- spawning: telegraph marks first, enemies appear when they expire
   if (run.waveTime < wave.duration - 1.5) {
@@ -293,19 +302,11 @@ export function update(run, dt, move) {
   run.bolts = run.bolts.filter((b) => !b.dead);
   run.enemies = run.enemies.filter((e) => !e.dead);
 
-  // --- salvage pickups
-  for (const k of run.pickups) {
-    const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
-    if (d < s.pickup) k.pull = true;
-    if (k.pull) { k.v = Math.min(400, k.v + 900 * dt); k.x += (dx / d) * k.v * dt; k.y += (dy / d) * k.v * dt; }
-    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; run.events.push({ type: "pickup" }); }
-  }
-  run.pickups = run.pickups.filter((k) => !k.got);
-
+  tickPickups(run, dt);
   tickFx(run, dt);
 
   if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; run.events.push({ type: "dead" }); return; }
-  if (run.waveTime >= wave.duration) endWave(run);
+  if (run.waveTime >= wave.duration) clearWave(run);
 }
 
 function spawnPoint(run, minDist) {
@@ -439,10 +440,33 @@ function tickFx(run, dt) {
   run.shake = Math.max(0, run.shake - dt * 20);
 }
 
+function tickPickups(run, dt) {
+  const p = run.player;
+  for (const k of run.pickups) {
+    const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
+    if (d < run.stats.pickup || run.clearing > 0) k.pull = true;
+    if (k.pull) { k.v = Math.min(400, k.v + 900 * dt); k.x += (dx / d) * k.v * dt; k.y += (dy / d) * k.v * dt; }
+    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; run.events.push({ type: "pickup" }); }
+  }
+  run.pickups = run.pickups.filter((k) => !k.got);
+}
+
+export const CLEAR_TIME = 1.4;
+function clearWave(run) {
+  run.clearing = CLEAR_TIME;
+  for (const e of run.enemies) {
+    run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.3 + run.rand() * 0.4, max: 0.7 });
+  }
+  if (run.enemies.length) run.events.push({ type: "boom", r: 10 });
+  for (const k of ["enemies", "bolts", "shots", "marks"]) run[k].length = 0;
+  run.shake = Math.max(run.shake, 4);
+  run.events.push({ type: "waveClear" });
+}
+
 function endWave(run) {
   run.salvage += run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
-  run.events.push({ type: "waveClear" });
+  run.clearing = 0;
   if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
   run.phase = "hangar";
   run.shop.rerolls = 0;

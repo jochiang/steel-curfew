@@ -207,7 +207,7 @@ export function updateHud(run) {
     Object.assign(hud, {
       hpBar: $(".hp i", hud.el), hpText: $(".hp span", hud.el), salvage: $(".salvage span", hud.el),
       wave: $(".wave", hud.el), timer: $(".timer", hud.el), boss: $(".boss", hud.el),
-      bossName: $(".boss span", hud.el), bossBar: $(".boss i", hud.el),
+      bossName: $(".boss span", hud.el), bossBar: $(".boss i", hud.el), banner: $(".banner", hud.el),
     });
   }
   const p = run.player, set = (k, v, fn) => { if (hud.last[k] !== v) { hud.last[k] = v; fn(v); } };
@@ -217,6 +217,9 @@ export function updateHud(run) {
   set("wave", `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
   const left = Math.max(0, Math.ceil(WAVES[run.wave].duration - run.waveTime));
   set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
+  const banner = run.clearing > 0 ? (run.wave >= WAVES.length - 1 ? "Arena cleared" : "Wave cleared")
+    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}` : "";
+  set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
   set("boss", !!boss, (v) => (hud.boss.hidden = !v));
   if (boss) {
