@@ -83,6 +83,7 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .won h2 { color: var(--salvage); }
 .title-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .title-mech { width: clamp(76px, 22vw, 133px); aspect-ratio: 1; image-rendering: pixelated; }
+.title-panel > .primary { position: sticky; bottom: calc(10px + var(--safe-b)); z-index: 2; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); }
 .title-foot { display: flex; justify-content: center; margin-top: 12px; }
 .title-foot .sound { min-width: 140px; }
 .lost h2 { color: var(--danger); }
@@ -95,6 +96,29 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 }
 .pick b { font-family: var(--px); font-size: 17px; }
 .pick small, .seg small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.frame {
+  display: flex; gap: 10px; align-items: center; text-align: left; padding: 8px 10px; min-height: 44px;
+  background: var(--panel-2); border: 1px solid var(--line); --cut: 8px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+.frame.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel-2)); }
+.frame-art { width: 69px; height: 66px; image-rendering: pixelated; flex: none; }
+.frame-text { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.frame-text b { font-family: var(--px); font-size: 17px; }
+.frame-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-family: var(--px); font-size: 10px; color: var(--muted); }
+.sbar { height: 4px; background: #0b0c0f; }
+.sbar i { display: block; height: 100%; background: var(--accent); }
+.frame .chips { gap: 3px; }
+.hp-chip {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 4px; font-style: normal;
+  font-family: var(--px); font-size: 10px; font-weight: 700; color: #0d0f13; border-radius: 2px; vertical-align: 1px;
+}
+.hp-E { --hp: var(--energy); } .hp-B { --hp: var(--ballistic); } .hp-M { --hp: var(--melee); } .hp-U { --hp: #c9ced6; }
+.hp-chip { background: var(--hp); }
+.slot.empty { gap: 4px; }
+.frame-desc em { font-style: normal; color: var(--text); }
+.pick-desc.frame-desc { display: block; }
 .pick-desc { display: none; margin: 8px 0 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
 .pick-desc b { color: var(--fam); font-weight: 600; }
 .pick.on { border-color: var(--fam); box-shadow: inset 0 0 0 1px var(--fam); background: color-mix(in srgb, var(--fam) 9%, var(--panel-2)); }
@@ -137,7 +161,7 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 
 .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .slot { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--fam, var(--line)); --cut: 6px; }
-.slot.empty { color: #555c67; font-size: 12px; display: grid; place-items: center; min-height: 52px; border-style: dashed; border-left-width: 1px; }
+.slot.empty { color: #555c67; font-size: 12px; display: flex; align-items: center; justify-content: center; min-height: 52px; border-style: dashed; border-left-width: 1px; }
 .slot-main { display: grid; gap: 2px; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; min-height: 52px; }
 .slot-main b { font-family: var(--px); font-size: 15px; }
 .slot-main small { color: var(--muted); font-size: 12px; }
@@ -178,6 +202,9 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
   .seg { grid-template-columns: 1fr; }
   .seg.seg3 { grid-template-columns: repeat(3, 1fr); }
   .picks { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .frames { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .frame { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px; }
+  .frame-art { width: 46px; height: 44px; align-self: center; }
   .pick { padding: 8px 10px; }
   .pick small { display: none; }
   .pick b { font-size: 15px; }

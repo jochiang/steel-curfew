@@ -1,6 +1,6 @@
-import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, armorMul } from "./content.js";
+import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, armorMul } from "./content.js";
 import {
-  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes,
+  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits,
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { mechFrames } from "./art.js";
@@ -18,9 +18,25 @@ export function show(id) {
 }
 
 // ---------------------------------------------------------------- title
+const HP_LABEL = { E: "Energy", B: "Ballistic", M: "Melee", U: "Universal" };
+const hpChips = (list) => list.map((h) => `<i class="hp-chip hp-${h}" title="${HP_LABEL[h]} hardpoint">${h}</i>`).join("");
+const statBar = (v, max) => `<span class="sbar"><i style="width:${Math.round(Math.min(1, v / max) * 100)}%"></i></span>`;
+
 export function renderTitle(opts, onDeploy) {
   const el = $("#title");
-  const cards = Object.entries(WEAPONS).map(([k, w]) => `
+  const ch = CHASSIS[opts.chassis] || CHASSIS.warden;
+  if (!canMount(ch, WEAPONS[opts.start].family)) opts.start = Object.keys(WEAPONS).find((k) => canMount(ch, WEAPONS[k].family));
+  const frames = Object.entries(CHASSIS).map(([k, c]) => `
+    <button class="frame${opts.chassis === k ? " on" : ""}" data-chassis="${k}">
+      <canvas class="frame-art" data-art="${k}" width="23" height="22" aria-hidden="true"></canvas>
+      <span class="frame-text"><span class="tag">${esc(c.cls)}</span><b>${esc(c.name)}</b>
+        <span class="frame-stats">
+          <span>HP</span>${statBar(c.hp, 90)}<span>SPD</span>${statBar(c.speed, 100)}<span>TON</span>${statBar(c.capacity, 85)}
+        </span>
+        <span class="chips">${hpChips(c.hardpoints)}</span>
+      </span>
+    </button>`).join("");
+  const cards = Object.entries(WEAPONS).filter(([, w]) => canMount(ch, w.family)).map(([k, w]) => `
     <button class="pick fam-${w.family}${opts.start === k ? " on" : ""}" data-start="${k}">
       <span class="tag">${FAM[w.family]}</span>
       <b>${esc(w.name)}</b>
@@ -29,8 +45,11 @@ export function renderTitle(opts, onDeploy) {
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
-      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="19" height="19" aria-hidden="true"></canvas></div>
-      <p class="sub">prototype · 5 waves · Warden frame</p>
+      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="23" height="22" aria-hidden="true"></canvas></div>
+      <p class="sub">prototype · 5 waves · procedural city</p>
+      <h3>Frame</h3>
+      <div class="frames">${frames}</div>
+      <p class="pick-desc frame-desc"><b>${esc(ch.name)}:</b> ${esc(ch.blurb)} <em>${esc(ch.quirk)}.</em></p>
       <h3>Starting weapon</h3>
       <div class="picks">${cards}</div>
       <p class="pick-desc fam-${sel.family}"><b>${esc(sel.name)}:</b> ${esc(sel.desc)}</p>
@@ -43,33 +62,40 @@ export function renderTitle(opts, onDeploy) {
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
       <div class="title-foot">${soundBtn()}</div>
     </div>`;
+  for (const cv of el.querySelectorAll(".frame-art")) {
+    const f = mechFrames(cv.dataset.art, false)[0], g = cv.getContext("2d");
+    g.drawImage(f, (cv.width - f.width) >> 1, cv.height - f.height);
+  }
   el.onclick = (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     if ("sound" in b.dataset) return toggleSound(b);
     sfx("click");
+    if (b.dataset.chassis) opts.chassis = b.dataset.chassis;
     if (b.dataset.start) opts.start = b.dataset.start;
     if (b.dataset.vent) opts.ventMode = b.dataset.vent;
     if ("deploy" in b.dataset) return onDeploy();
+    const scroll = el.scrollTop;
     renderTitle(opts, onDeploy);
+    el.scrollTop = scroll;
   };
   show("title");
-  animateTitleMech($(".title-mech", el));
+  animateTitleMech($(".title-mech", el), opts.chassis);
 }
 
-// the Warden idling/walking in place next to the logo
+// the chosen frame idling/walking in place next to the logo
 let titleAnim = 0;
-const titleFrames = { cold: null, hot: null };
-function animateTitleMech(cv) {
+const titleFrames = {};
+function animateTitleMech(cv, kind) {
   cancelAnimationFrame(titleAnim);
-  titleFrames.cold ??= mechFrames(false);
-  titleFrames.hot ??= mechFrames(true, 0);
-  const g = cv.getContext("2d");
+  titleFrames[kind] ??= { cold: mechFrames(kind, false), hot: mechFrames(kind, true, 0) };
+  const fr = titleFrames[kind], g = cv.getContext("2d");
   const tick = (t) => {
     if (!cv.isConnected) return;
     const s = t / 1000, walking = s % 6 < 4, hot = s % 6 > 4.6;
-    g.clearRect(0, 0, 19, 19);
-    g.drawImage((hot ? titleFrames.hot : titleFrames.cold)[walking ? Math.floor(s * 7) % 4 : 0], 0, 0);
+    const f = (hot ? fr.hot : fr.cold)[walking ? Math.floor(s * 7) % 4 : 0];
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.drawImage(f, (cv.width - f.width) >> 1, cv.height - f.height);
     titleAnim = requestAnimationFrame(tick);
   };
   titleAnim = requestAnimationFrame(tick);
@@ -85,7 +111,7 @@ export function renderHangar(run, onDeploy) {
     const def = o.kind === "weapon" ? WEAPONS[o.key] : MODULES[o.key];
     const why = blocked(run, o);
     const fam = o.kind === "weapon" ? def.family : "module";
-    const merge = o.kind === "weapon" && !why && run.weapons.length >= run.chassis.slots;
+    const merge = o.kind === "weapon" && !why && !fits(run, def.family);
     return `
       <div class="offer fam-${fam}${o.sold ? " sold" : ""}${o.locked ? " locked" : ""}">
         <div class="offer-top"><span class="tag">${FAM[fam]}</span>
@@ -98,13 +124,13 @@ export function renderHangar(run, onDeploy) {
       </div>`;
   }).join("");
 
-  const slots = Array.from({ length: run.chassis.slots }, (_, i) => {
-    const w = run.weapons[i];
-    if (!w) return `<div class="slot empty">empty hardpoint</div>`;
+  const slots = run.chassis.hardpoints.map((h, hi) => {
+    const i = run.mounts[hi], w = run.weapons[i];
+    if (!w) return `<div class="slot empty hp-${h}"><i class="hp-chip hp-${h}">${h}</i>${HP_LABEL[h].toLowerCase()} hardpoint</div>`;
     const def = WEAPONS[w.key], open = selected === i;
     return `
       <div class="slot fam-${def.family}${open ? " open" : ""}">
-        <button class="slot-main" data-slot="${i}"><b>${esc(def.name)} <em>${TIER_NAMES[w.tier]}</em></b>
+        <button class="slot-main" data-slot="${i}"><b><i class="hp-chip hp-${h}">${h}</i>${esc(def.name)} <em>${TIER_NAMES[w.tier]}</em></b>
           <small>${fmt(weaponDmg(run, w))} dmg · ${def.weight} t</small></button>
         ${open ? `<div class="slot-actions">
           <button data-combine="${i}" ${combinable(run, i) ? "" : "disabled"}>Combine → ${TIER_NAMES[Math.min(3, w.tier + 1)]}</button>
@@ -137,15 +163,16 @@ export function renderHangar(run, onDeploy) {
         </div>
         <div class="loadout">
           ${targeting}
-          <h3>Hardpoints <em>${run.weapons.length}/${run.chassis.slots}</em></h3>
+          <h3>Hardpoints <em>${run.weapons.length}/${run.chassis.hardpoints.length}</em></h3>
           <div class="slots">${slots}</div>
           <h3>Modules</h3>
           <div class="chips">${mods}</div>
-          <h3>Frame · ${esc(run.chassis.name)}</h3>
+          <h3>Frame · ${esc(run.chassis.name)} <em>${esc(run.chassis.quirk)}</em></h3>
           <div class="load"><div class="bar"><i style="width:${loadPct}%"></i></div><span>${run.load} / ${run.chassis.capacity} t</span></div>
           <dl class="stats">
             <dt>Hull</dt><dd>${s.maxHp}</dd>
             <dt>Armor</dt><dd>${s.armor} <small>(−${Math.round((1 - armorMul(s.armor)) * 100)}% dmg)</small></dd>
+            ${s.dodge ? `<dt>Glance</dt><dd>${Math.round(s.dodge * 100)}% <small>of hits</small></dd>` : ""}
             <dt>Speed</dt><dd>${Math.round(speedOf(run))} <small>px/s</small></dd>
             <dt>Repair</dt><dd>${fmt(s.regen)} <small>HP/s</small></dd>
             <dt>Capacitor</dt><dd>${times ? `${fmt(times.fill)}s charge · ${fmt(times.vent)}s vent` : "<small>no energy weapons</small>"}</dd>

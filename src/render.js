@@ -1,5 +1,5 @@
 import { ARENA, ENEMIES, WEAPONS } from "./content.js";
-import { weaponsOffline } from "./game.js";
+import { weaponsOffline, mountPoint } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
@@ -78,10 +78,20 @@ export function createRenderer(canvas) {
   const props = propSprites();
   const smoke = [];             // renderer-only ambient smoke from wrecked buildings
 
-  const mech = { cold: mechFrames(false), hotA: mechFrames(true, 0), hotB: mechFrames(true, 1) };
-  const mechGlow = { cold: mechFrames(false, 0, true), hotA: mechFrames(true, 0, true), hotB: mechFrames(true, 1, true) };
-  mech.flash = mech.cold.map((f) => flash(f));
-  mech.xray = flash(mech.cold[0], "#7fd8ff");
+  // player mech sprites per chassis, built on first use
+  const mechSets = new Map();
+  const mechSet = (kind) => {
+    if (!mechSets.has(kind)) {
+      const m = { cold: mechFrames(kind, false), hotA: mechFrames(kind, true, 0), hotB: mechFrames(kind, true, 1) };
+      m.flash = m.cold.map((f) => flash(f));
+      m.xray = flash(m.cold[0], "#7fd8ff");
+      m.glow = { cold: mechFrames(kind, false, 0, true), hotA: mechFrames(kind, true, 0, true), hotB: mechFrames(kind, true, 1, true) };
+      mechSets.set(kind, m);
+    }
+    return mechSets.get(kind);
+  };
+  // sprites stand on the feet line 9px below the mech's centre
+  const mechAt = (spr, X, Y, p) => [X(p.x) - (spr.width >> 1), Y(p.y) + 10 - spr.height];
   const enemies = {};
   for (const k of Object.keys(ENEMIES)) {
     const frames = enemyFrames(k);
@@ -221,7 +231,7 @@ export function createRenderer(canvas) {
       const w = e.d.r * 2 + (e.d.boss ? 2 : 0), s = shadow(w);
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
-    g.drawImage(shadow(16), X(p.x) - 8, Y(p.y) + 8);
+    { const sw = run.chassis.radius * 2; g.drawImage(shadow(sw), X(p.x) - (sw >> 1), Y(p.y) + 8); }
     g.fillStyle = "rgba(5,6,10,0.4)";
     for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
     for (const s of run.shots) g.fillRect(X(s.x), Y(s.y), 1, 1);
@@ -307,7 +317,7 @@ export function createRenderer(canvas) {
     }
     // x-ray: units hidden behind a building are drawn again as faint silhouettes
     for (const e of run.enemies) if (occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
-    if (occluded(city, p.x, p.y + 8)) { g.globalAlpha = 0.6; g.drawImage(mech.xray, X(p.x) - 9, Y(p.y) - 9); g.globalAlpha = 1; }
+    if (occluded(city, p.x, p.y + 8)) { const xr = mechSet(run.chassisKey).xray, [mx, my] = mechAt(xr, X, Y, p); g.globalAlpha = 0.6; g.drawImage(xr, mx, my); g.globalAlpha = 1; }
 
     // fire
     for (const q of flames) { q.t -= dt; q.y -= q.vy * dt; q.x += Math.sin(t * 7 + q.ph) * 4 * dt; }
@@ -495,8 +505,9 @@ export function createRenderer(canvas) {
       put(e.d.boss ? 30 : e.type === "spitter" ? 12 : 7, e.type === "spitter" ? "#1f3a12" : "#3a1410", e.x, e.y);
     }
     // the mech's visor (and grilles when venting)
-    const gset = venting ? (Math.floor(t * 10) % 2 ? mechGlow.hotA : mechGlow.hotB) : mechGlow.cold;
-    lg.drawImage(gset[p.moving ? Math.floor(t * 9) % 4 : 0], X(p.x) - 9, Y(p.y) - 9);
+    const mg = mechSet(run.chassisKey).glow, gset = venting ? (Math.floor(t * 10) % 2 ? mg.hotA : mg.hotB) : mg.cold;
+    const gspr = gset[p.moving ? Math.floor(t * 9) % 4 : 0], [gx, gy] = mechAt(gspr, X, Y, p);
+    lg.drawImage(gspr, gx, gy);
     // salvage, bolts, shots
     for (const k of run.pickups) put(6, "#1d5a34", k.x, k.y);
     for (const b of run.bolts) { put(12, "#7a3010", b.x, b.y); lg.fillStyle = "#ffffff"; lg.fillRect(X(b.x) - 2, Y(b.y - BOLT_H) - 2, 5, 5); }
@@ -568,15 +579,16 @@ export function createRenderer(canvas) {
     const p = run.player, venting = run.cap.vent > 0, t = run.time;
     const blinking = p.iframes > 0 && Math.floor(p.iframes * 20) % 2;
     const fi = p.moving ? Math.floor(t * 9) % 4 : 0;
-    const set = blinking ? mech.flash : venting ? (Math.floor(t * 10) % 2 ? mech.hotA : mech.hotB) : mech.cold;
-    const x = X(p.x), y = Y(p.y);
-    g.drawImage(set[fi], x - 9, y - 9);
+    const ms = mechSet(run.chassisKey);
+    const set = blinking ? ms.flash : venting ? (Math.floor(t * 10) % 2 ? ms.hotA : ms.hotB) : ms.cold;
+    const spr = set[fi], [sx0, sy0] = mechAt(spr, X, Y, p);
+    g.drawImage(spr, sx0, sy0);
     // barrels come off the shoulder mounts (left, right, alternating; later pairs stack)
     const offline = weaponsOffline(run), a = p.aim, cx = Math.cos(a), cy = Math.sin(a);
     const bob = p.moving && fi === 2 ? 1 : 0;
     run.weapons.forEach((w, i) => {
-      const def = WEAPONS[w.key];
-      const msx = x + (i % 2 ? 7 : -7), msy = y - 4 + bob + (Math.floor(i / 2) - 1) * 2;
+      const def = WEAPONS[w.key], mp = mountPoint(run, i);
+      const msx = X(mp.x), msy = Y(mp.y) + bob;
       const len = def.family === "melee" ? 5 : def.family === "energy" ? 8 : 7;
       const dim = offline || (venting && def.family === "energy");
       const col = dim ? "#6b4b44" : def.family === "energy" ? C.energy : def.family === "melee" ? C.melee : C.ballistic;

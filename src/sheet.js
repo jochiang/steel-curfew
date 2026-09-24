@@ -1,11 +1,11 @@
 // ?sheet: every sprite enlarged on one page, for checking art.
 import { ENEMIES } from "./content.js";
-import { mechFrames, enemyFrames, salvageFrames, bigSalvageFrames, glow } from "./art.js";
+import { mechFrames, enemyFrames, salvageFrames, bigSalvageFrames, glow, MECH_KINDS } from "./art.js";
 
 export function drawSheet(canvas) {
   const Z = +new URLSearchParams(location.search).get("z") || 8;
   const rows = [
-    ["mech", mechFrames(false)], ["mech hot", mechFrames(true, 0)], ["mech hot b", mechFrames(true, 1)],
+    ...MECH_KINDS.flatMap((k) => [[k, mechFrames(k, false)], [k + " hot", [mechFrames(k, true, 0)[0], mechFrames(k, true, 1)[2]]]]),
     ...Object.keys(ENEMIES).map((k) => [k, enemyFrames(k)]),
     ["salvage", [...salvageFrames(), ...bigSalvageFrames()]],
     ["glow", [glow(12, "#1f5a73"), glow(8, "#5a2410")]],

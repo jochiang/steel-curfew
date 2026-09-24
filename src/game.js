@@ -1,5 +1,5 @@
 import {
-  ARENA, BUILDING_DMG, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
+  ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
@@ -34,12 +34,12 @@ function near(x, y, r, fn) {
 
 // ---------------------------------------------------------------- run setup
 export const TIMES_OF_DAY = ["day", "dusk", "night"];
-export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all", targeting = "crowd", tod = null } = {}) {
+export function newRun({ seed = Date.now(), chassis = "warden", start = "autocannon", ventMode = "all", targeting = "crowd", tod = null } = {}) {
   const todRoll = mulberry32((seed ^ 0x51ed27) >>> 0)();   // own stream, so it doesn't shift the game's rng
   const run = {
     rand: mulberry32(seed), seed, ventMode, targeting,
     tod: TIMES_OF_DAY.includes(tod) ? tod : todRoll < 0.4 ? "day" : todRoll < 0.62 ? "dusk" : "night",
-    chassis: CHASSIS.warden,
+    chassisKey: CHASSIS[chassis] ? chassis : "warden", chassis: CHASSIS[chassis] || CHASSIS.warden,
     phase: "combat", wave: 0, time: 0, waveTime: 0,
     salvage: 0, kills: 0,
     weapons: [], modules: [],
@@ -65,10 +65,14 @@ function addWeapon(run, key, tier) {
 
 export function recompute(run) {
   const s = {
-    maxHp: run.chassis.hp, armor: 0, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
+    maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
     rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
+    dodge: 0, ram: 0,
   };
+  for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
   for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
+  s.dodge = Math.min(0.6, s.dodge);
+  run.mounts = assignMounts(run);
   run.stats = s;
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
 }
@@ -82,6 +86,39 @@ export function startWave(run) {
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
 }
+
+// ---------------------------------------------------------------- hardpoints
+/** Can the loadout (plus one more weapon of `extra` family) be fitted into the chassis's hardpoints?
+ *  Family slots first, universal slots take the overflow. */
+export function fits(run, extra = null) {
+  const cap = { energy: 0, ballistic: 0, melee: 0 }, need = { energy: 0, ballistic: 0, melee: 0 };
+  let uni = 0;
+  for (const h of run.chassis.hardpoints) h === "U" ? uni++ : cap[HARDPOINT[h]]++;
+  for (const w of run.weapons) need[WEAPONS[w.key].family]++;
+  if (extra) need[extra]++;
+  let over = 0;
+  for (const f in need) over += Math.max(0, need[f] - cap[f]);
+  return over <= uni;
+}
+/** For each hardpoint, the index of the weapon mounted on it (or -1). */
+export function assignMounts(run) {
+  const hp = run.chassis.hardpoints, out = hp.map(() => -1);
+  run.weapons.forEach((w, wi) => {
+    const fam = WEAPONS[w.key].family;
+    let i = hp.findIndex((h, j) => out[j] < 0 && HARDPOINT[h] === fam);
+    if (i < 0) i = hp.findIndex((h, j) => out[j] < 0 && h === "U");
+    if (i >= 0) out[i] = wi;
+  });
+  return out;
+}
+/** Where weapon `wi` sits on the mech: alternating shoulders, later pairs stacked. */
+export function mountPoint(run, wi) {
+  const ch = run.chassis, p = run.player, hi = Math.max(0, run.mounts.indexOf(wi));
+  const rows = Math.ceil(ch.hardpoints.length / 2), row = Math.floor(hi / 2);
+  return { x: p.x + (hi % 2 ? 1 : -1) * ch.shoulder, y: p.y + 9 - ch.mountY + Math.round((row - (rows - 1) / 2) * 2) };
+}
+/** Weapons a chassis can start with (a hardpoint of its family, or a universal one) */
+export const canMount = (chassis, family) => chassis.hardpoints.some((h) => h === "U" || HARDPOINT[h] === family);
 
 // ---------------------------------------------------------------- derived numbers (also used by UI)
 export const famDmg = (s, fam) => 1 + (fam === "ballistic" ? s.dmgBallistic : fam === "energy" ? s.dmgEnergy : s.dmgMelee);
@@ -112,7 +149,7 @@ export function update(run, dt, move) {
   p.moving = move.x !== 0 || move.y !== 0;
   const city = run.city;
   p.x += move.x * spd * dt; p.y += move.y * spd * dt;
-  collide(city, p, run.chassis.radius);
+  collide(city, p, run.chassis.radius, s.ram ? (ti) => damageAt(city, ti, RAM.building * dt * 0.5) : null);
   p.x = clamp(p.x, run.chassis.radius, ARENA.w - run.chassis.radius);
   p.y = clamp(p.y, run.chassis.radius, ARENA.h - run.chassis.radius);
   if (p.moving) { p.moveAngle = Math.atan2(move.y, move.x); breakProps(run, p.x, p.y, run.chassis.radius + 3); }
@@ -209,7 +246,14 @@ export function update(run, dt, move) {
     if (e.d.crush && e.crushing) breakProps(run, e.x, e.y, e.d.r + 2);
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
     const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
-    if (dx * dx + dy * dy < r * r) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave));
+    if (dx * dx + dy * dy < r * r) {
+      if (s.ram && !(e.ramT > run.time)) {   // Bulwark shoulders through what it touches
+        e.ramT = run.time + RAM.every;
+        const d = Math.hypot(dx, dy) || 1;
+        hitEnemy(run, e, RAM.enemy * (1 + 0.3 * run.wave), (-dx / d) * RAM.knock, (-dy / d) * RAM.knock);
+      }
+      hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave));
+    }
   }
 
   // --- aim: face the nearest enemy, else the travel direction
@@ -479,8 +523,8 @@ function discharge(run, w, aim) {
   const cut = new Set();
   traverse(p.x, p.y, ex, ey, (tx, ty) => { const id = tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS ? run.city.bid[ty * TCOLS + tx] : -1; if (id >= 0) cut.add(id); return false; });
   for (const id of cut) damageBuilding(run.city, run.city.buildings[id], dmg * BUILDING_DMG.energy);
-  const i = run.weapons.indexOf(w), mx = p.x + (i % 2 ? 7 : -7), my = p.y - 4 + (Math.floor(i / 2) - 1) * 2;
-  run.fx.push({ type: "beam", x1: mx + Math.cos(bestA) * 8, y1: my + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: 0.3, max: 0.3 });
+  const m = mountPoint(run, run.weapons.indexOf(w));
+  run.fx.push({ type: "beam", x1: m.x + Math.cos(bestA) * 8, y1: m.y + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: 0.3, max: 0.3 });
   p.aim = bestA;
   run.events.push({ type: "beam" });
 }
@@ -522,6 +566,11 @@ function hitEnemy(run, e, dmg, kx, ky) {
 function hurtPlayer(run, dmg) {
   const p = run.player;
   if (p.iframes > 0) return;
+  if (run.stats.dodge && run.rand() < run.stats.dodge) {   // glanced off
+    p.iframes = PLAYER_IFRAMES * 0.5;
+    run.texts.push({ x: p.x, y: p.y - 12, n: "glance", t: 0.5, max: 0.5 });
+    return;
+  }
   p.hp -= dmg * armorMul(run.stats.armor);
   p.iframes = PLAYER_IFRAMES; p.hurt = 0.3;
   run.events.push({ type: "hurt" });
@@ -618,8 +667,10 @@ export function blocked(run, o) {
     if (run.load + MODULES[o.key].weight > run.chassis.capacity) return "Over tonnage";
     return null;
   }
-  const merge = run.weapons.length >= run.chassis.slots;
-  if (merge) return run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3) ? null : "Slots full";
+  if (!fits(run, WEAPONS[o.key].family)) {
+    if (run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3)) return null;   // merges instead
+    return canMount(run.chassis, WEAPONS[o.key].family) ? "Hardpoints full" : `No ${WEAPONS[o.key].family} hardpoint`;
+  }
   if (run.load + WEAPONS[o.key].weight > run.chassis.capacity) return "Over tonnage";
   return null;
 }
@@ -629,7 +680,7 @@ export function buy(run, i) {
   if (!o || blocked(run, o)) return false;
   run.salvage -= o.price;
   if (o.kind === "module") run.modules.push(o.key);
-  else if (run.weapons.length < run.chassis.slots) addWeapon(run, o.key, o.tier);
+  else if (fits(run, WEAPONS[o.key].family)) addWeapon(run, o.key, o.tier);
   else run.weapons.find((w) => w.key === o.key && w.tier === o.tier).tier++;
   o.sold = true; o.locked = false;
   recompute(run);

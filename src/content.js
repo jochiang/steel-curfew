@@ -6,17 +6,37 @@ export const ARENA = { w: COLS * TILE, h: ROWS * TILE };   // the city grid
 // How much each weapon family hurts buildings, relative to its damage to enemies
 export const BUILDING_DMG = { ballistic: 1, energy: 1.3, melee: 1.6, burst: 1 };
 
+// Hardpoint types: E energy, B ballistic, M melee, U universal (takes anything).
+export const HARDPOINT = { E: "energy", B: "ballistic", M: "melee", U: "universal" };
+
+// shoulder: x offset of the weapon mounts from centre; mountY: their height above the feet line.
 export const CHASSIS = {
+  kestrel: {
+    name: "Kestrel", cls: "Light", blurb: "Fast and fragile. Lives by staying out of reach.",
+    hp: 45, armor: 0, speed: 100, capacity: 40, radius: 7,
+    hardpoints: ["E", "E", "B", "U"], fx: { dodge: 0.25 }, quirk: "25% of hits glance off",
+    shoulder: 6, mountY: 12,
+  },
   warden: {
-    name: "Warden",
-    blurb: "Medium frame. Balanced hardpoints, 60 t of capacity.",
-    hp: 60,
-    speed: 80,        // px/s before load
-    capacity: 60,     // tonnes of weapons + modules
-    slots: 6,
-    radius: 8,
+    name: "Warden", cls: "Medium", blurb: "The all-rounder. Two universal hardpoints take anything.",
+    hp: 60, armor: 0, speed: 80, capacity: 60, radius: 8,
+    hardpoints: ["B", "B", "E", "M", "U", "U"], fx: {}, quirk: "Two universal hardpoints",
+    shoulder: 7, mountY: 13,
+  },
+  bulwark: {
+    name: "Bulwark", cls: "Heavy", blurb: "Slow, armoured, and it doesn't walk around buildings.",
+    hp: 90, armor: 3, speed: 62, capacity: 85, radius: 10,
+    hardpoints: ["M", "M", "B", "B", "U"], fx: { ram: 1 }, quirk: "Walks through buildings and rams enemies",
+    shoulder: 9, mountY: 14,
+  },
+  tempest: {
+    name: "Tempest", cls: "Assault", blurb: "An energy platform built around its capacitor.",
+    hp: 70, armor: 1, speed: 72, capacity: 75, radius: 9,
+    hardpoints: ["E", "E", "E", "B", "U"], fx: { fillMul: -0.3 }, quirk: "Capacitor charges 30% faster",
+    shoulder: 8, mountY: 14,
   },
 };
+export const RAM = { building: 90, enemy: 10, knock: 140, every: 0.45 };   // Bulwark: dps to buildings; hit per enemy contact
 
 // speed multiplier from load: empty frame 1.15x, at capacity 0.75x
 export const loadSpeed = (load, cap) => 1.15 - 0.4 * Math.min(1, load / cap);
@@ -80,7 +100,7 @@ export const WEAPONS = {
 };
 
 // Stat keys: maxHp, armor, regen, speedMul, dmgBallistic, dmgEnergy, dmgMelee, rangeMul,
-// reloadMul, fillMul, ventMul, pickup, ventSpeed, ventBurst, isolatedLoops
+// reloadMul, fillMul, ventMul, pickup, ventSpeed, ventBurst, isolatedLoops, dodge, ram
 export const MODULES = {
   plating:  { name: "Armor Plating",      weight: 8, price: 20, fx: { armor: 3, maxHp: 5 },       desc: "+3 armor, +5 max HP" },
   frame:    { name: "Reinforced Frame",   weight: 6, price: 18, fx: { maxHp: 15 },                desc: "+15 max HP" },

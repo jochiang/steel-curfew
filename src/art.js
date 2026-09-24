@@ -49,54 +49,130 @@ export function flash(src, color = "#ffffff") {
   return c;
 }
 
-// ---------------------------------------------------------------- the Warden (player mech)
-// Torso: 19x11. Shoulder pods are the weapon mounts; `v` are the heat grilles.
-const TORSO = [
-  "....oooooo",
-  "ooooo45555",
-  "o443o43333",
-  "o333o3oooo",
-  "ovvvo3obbb",
-  "o332o3oabb",
-  "ovvvo2oooo",
-  "o221o23331",
-  "ooooo22331",
-  "....o11222",
-  "....oooooo",
-];
-// One leg, 4 wide, plus a 5-wide foot. `lift` shortens the shin so the foot rises.
-function leg(lift, mirror) {
-  const shin = ["o22o", "o21o", "o11o", "o32o", "o21o"].slice(0, 5 - lift);
-  const foot = ["ooooo", "o332o", "ooooo"];
-  const m = (s) => (mirror ? [...s].reverse().join("").replace(/3/g, "2") : s);
-  return { shin: shin.map(m), foot: foot.map(m) };
-}
-function legsRows(liftL, liftR) {
-  const rows = Array.from({ length: 8 }, () => Array(19).fill("."));
-  const put = (x, y, s) => [...s].forEach((ch, i) => { if (ch !== ".") rows[y][x + i] = ch; });
-  for (const [x, fx, lift, mirror] of [[5, 4, liftL, false], [10, 10, liftR, true]]) {
-    const l = leg(lift, mirror);
-    l.shin.forEach((s, y) => put(x, y, s));
-    l.foot.forEach((s, y) => put(fx, l.shin.length + y, s));
+// ---------------------------------------------------------------- player mechs
+// Each chassis: a mirrored torso (left half incl. centre column), a leg (drawn left, mirrored for
+// the right), a foot, and where they sit. Shoulder pods are the weapon mounts; `v` are heat
+// grilles, `b`/`c` the visor, `q`/`Q` capacitor coils (Tempest). `lift` drops a shin row so the
+// foot rises for the walk cycle.
+const MECHS = {
+  kestrel: {   // light scout: slim, wedge cockpit, reverse-joint legs
+    w: 15, ramp: "sand", visor: ["#8a6a1e", "#e8c547", "#fff2b0"], glint: [[6, 4]],
+    torso: [
+      "....oooo",
+      "...o4555",
+      "oooo4333",
+      "o43o3ooo",
+      "ov3o3obb",
+      "o32o2oab",
+      "oooo2ooo",
+      "...o2231",
+      "....o111",
+      "....oooo",
+    ],
+    leg: { x: 3, w: 4, rows: [".oo.", "o21o", "o1o.", "o2o.", ".o2o", ".o2o"], lift: 3 },
+    foot: { rows: ["ooooo", "o221o", "ooooo"], out: 1 },
+    legY: 9,
+  },
+  warden: {   // medium: the all-rounder
+    w: 19, ramp: "steel", visor: ["#8f3e2c", "#d97757", "#ffc2a6"], glint: [[7, 4], [8, 4]],
+    torso: [
+      "....oooooo",
+      "ooooo45555",
+      "o443o43333",
+      "o333o3oooo",
+      "ovvvo3obbb",
+      "o332o3oabb",
+      "ovvvo2oooo",
+      "o221o23331",
+      "ooooo22331",
+      "....o11222",
+      "....oooooo",
+    ],
+    leg: { x: 5, w: 4, rows: ["o22o", "o21o", "o11o", "o32o", "o21o"], lift: 2 },
+    foot: { rows: ["ooooo", "o332o", "ooooo"], out: 1 },
+    legY: 10,
+  },
+  bulwark: {   // heavy brawler: broad shoulders, stompy legs
+    w: 23, ramp: "olive", visor: ["#3e5a1e", "#9acd5a", "#e4ffb8"], glint: [[8, 5], [9, 5]],
+    torso: [
+      "......oooooo",
+      ".....o455555",
+      "ooooo4433333",
+      "o5554o433333",
+      "o4443o3ooooo",
+      "o3333o3obbbb",
+      "ovvv3o3oabbb",
+      "o3333o2ooooo",
+      "ovvv2o233333",
+      "o2221o222322",
+      "oooooo122222",
+      "......o11111",
+      "......oooooo",
+    ],
+    leg: { x: 6, w: 5, rows: ["o222o", "o211o", "o322o", "o211o"], lift: 2 },
+    foot: { rows: ["ooooooo", "o33223o", "ooooooo"], out: 2 },
+    legY: 12,
+  },
+  tempest: {   // assault: energy platform with capacitor coils on its back
+    w: 21, ramp: "navy", visor: ["#1e5a73", "#6fd8ff", "#dff8ff"], glint: [[8, 6], [9, 6]],
+    torso: [
+      "..ooo......",
+      "..oqo...ooo",
+      "..oQo..o455",
+      "..oqo.o4333",
+      "ooooooo3ooo",
+      "o5554o33obb",
+      "o4443o3oabb",
+      "ovvv3o3oooo",
+      "o3332o23333",
+      "ovvv2o22322",
+      "o2221o12221",
+      "oooooo11111",
+      ".....oooooo",
+    ],
+    leg: { x: 6, w: 4, rows: ["o22o", "o21o", "o11o", "o32o", "o22o", "o21o"], lift: 3 },
+    foot: { rows: ["ooooo", "o332o", "ooooo"], out: 1 },
+    legY: 12,
+  },
+};
+RAMPS.sand = ["#3a3426", "#6a5e44", "#9c8c68", "#c8b890", "#ece0c0"];
+RAMPS.olive = ["#262a20", "#454c36", "#6a7552", "#96a278", "#cad4a8"];
+RAMPS.navy = ["#1c2230", "#333d55", "#56647f", "#8494b0", "#c0cce0"];
+
+function legsRows(spec, W, liftL, liftR) {
+  const { leg, foot } = spec, rows = leg.rows.length + foot.rows.length;
+  const out = Array.from({ length: rows }, () => Array(W).fill("."));
+  const put = (x, y, str) => [...str].forEach((ch, i) => { if (ch !== "." && x + i >= 0 && x + i < W) out[y][x + i] = ch; });
+  const mirror = (str) => [...str].reverse().join("").replace(/3/g, "2");
+  const rx = W - leg.x - leg.w;   // right leg mirrors the left about the centre
+  for (const [right, lift] of [[false, liftL], [true, liftR]]) {
+    const shin = leg.rows.filter((_, i) => !(lift && i === leg.lift));
+    const lx = right ? rx : leg.x, fx = right ? rx : leg.x - foot.out;
+    shin.forEach((str, y) => put(lx, y, right ? mirror(str) : str));
+    foot.rows.forEach((str, y) => put(fx, shin.length + y, right ? mirror(str) : str));
   }
-  return rows.map((r) => r.join(""));
+  return out.map((r) => r.join(""));
 }
 
-/** Mech frames. With glow, only the self-lit pixels (visor, and hot grilles) for night scenes. */
-export function mechFrames(hot, ventPhase = 0, glow = false) {
+/** Chassis frames: [plant, left up, plant (bob), right up]. With glow, only the self-lit pixels
+ *  (visor, coils, and hot grilles) for the night light map. */
+export function mechFrames(kind, hot, ventPhase = 0, glow = false) {
+  const m = MECHS[kind] || MECHS.warden;
   const vent = hot ? (ventPhase ? "#ffd27a" : "#ff8a4c") : "#20242c";
-  const p = pal(hot ? "hot" : "steel", { v: vent, a: "#8f3e2c", b: "#d97757", c: "#ffc2a6" });
-  const only = glow ? (hot ? "bcv" : "bc") : null;
-  const torso = build(TORSO, p, { sym: true, light: true, patch: [[7, 4, "c"], [8, 4, "c"]], only });
-  // walk cycle: plant, left up, plant (bob), right up
+  const p = pal(hot ? "hot" : m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff" });
+  const only = glow ? (hot ? "bcvqQ" : "bcqQ") : null;
+  const torso = build(m.torso, p, { sym: true, light: true, patch: m.glint.map(([x, y]) => [x, y, "c"]), only });
+  const H = m.legY + m.leg.rows.length + m.foot.rows.length + 1;
   const cycle = [[0, 0, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0]];
   return cycle.map(([l, r, bob]) => {
-    const c = new OffscreenCanvas(19, 19), g = c.getContext("2d");
-    if (!glow) g.drawImage(build(legsRows(l, r), p), 0, 10);
-    g.drawImage(torso, 0, bob);
+    const c = new OffscreenCanvas(m.w, H), g = c.getContext("2d");
+    const legs = legsRows(m, m.w, l, r);
+    if (!glow) g.drawImage(build(legs, p), 0, H - 1 - legs.length);
+    g.drawImage(torso, 0, bob + (H - 1 - legs.length - m.legY));
     return c;
   });
 }
+export const MECH_KINDS = Object.keys(MECHS);
 
 // ---------------------------------------------------------------- enemies
 const DRONE = [
