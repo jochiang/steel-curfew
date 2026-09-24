@@ -64,25 +64,34 @@ export function paintGround(city) {
   // lane markings and crosswalks from the road lines
   const { xs, ys } = city.roads;
   const inside = (v, lines) => lines.some(([s, w]) => v >= s && v < s + w);
+  const isRoad = (x, y) => at(x, y) === G.ROAD;
   for (const [x0, w] of xs) {
     const cx = (x0 + w / 2) * TILE;
-    for (let y = TILE; y < H - TILE; y += 12) if (!inside(Math.floor(y / TILE), ys) && !inside(Math.floor((y + 6) / TILE), ys)) px(g, "#7a7462", Math.round(cx) - (w === 3 ? 1 : 0), y, w === 3 ? 2 : 1, 6);
+    for (let y = TILE; y < H - TILE; y += 12) if (isRoad(Math.floor(cx / TILE), Math.floor(y / TILE)) && isRoad(Math.floor(cx / TILE), Math.floor((y + 6) / TILE)) && !inside(Math.floor(y / TILE), ys) && !inside(Math.floor((y + 6) / TILE), ys)) px(g, "#7a7462", Math.round(cx) - (w === 3 ? 1 : 0), y, w === 3 ? 2 : 1, 6);
   }
   for (const [y0, w] of ys) {
     const cy = (y0 + w / 2) * TILE;
-    for (let x = TILE; x < W - TILE; x += 12) if (!inside(Math.floor(x / TILE), xs) && !inside(Math.floor((x + 6) / TILE), xs)) px(g, "#7a7462", x, Math.round(cy) - (w === 3 ? 1 : 0), 6, w === 3 ? 2 : 1);
+    for (let x = TILE; x < W - TILE; x += 12) if (isRoad(Math.floor(x / TILE), Math.floor(cy / TILE)) && isRoad(Math.floor((x + 6) / TILE), Math.floor(cy / TILE)) && !inside(Math.floor(x / TILE), xs) && !inside(Math.floor((x + 6) / TILE), xs)) px(g, "#7a7462", x, Math.round(cy) - (w === 3 ? 1 : 0), 6, w === 3 ? 2 : 1);
   }
   for (const [x0, xw] of xs) for (const [y0, yw] of ys) {   // zebra crossings on each approach
     if (x0 < 2 || y0 < 2 || x0 + xw > COLS - 2 || y0 + yw > ROWS - 2) continue;
     const zl = Math.round(TILE * 0.55), zo = Math.round((TILE - zl) / 2);
     for (let i = 0; i < xw * TILE; i += 4) {
-      px(g, "#8a8578", x0 * TILE + i + 1, (y0 - 1) * TILE + zo, 2, zl);
-      px(g, "#8a8578", x0 * TILE + i + 1, (y0 + yw) * TILE + zo, 2, zl);
+      if (isRoad(x0, y0 - 1)) px(g, "#8a8578", x0 * TILE + i + 1, (y0 - 1) * TILE + zo, 2, zl);
+      if (isRoad(x0, y0 + yw)) px(g, "#8a8578", x0 * TILE + i + 1, (y0 + yw) * TILE + zo, 2, zl);
     }
     for (let i = 0; i < yw * TILE; i += 4) {
-      px(g, "#8a8578", (x0 - 1) * TILE + zo, y0 * TILE + i + 1, zl, 2);
-      px(g, "#8a8578", (x0 + xw) * TILE + zo, y0 * TILE + i + 1, zl, 2);
+      if (isRoad(x0 - 1, y0)) px(g, "#8a8578", (x0 - 1) * TILE + zo, y0 * TILE + i + 1, zl, 2);
+      if (isRoad(x0 + xw, y0)) px(g, "#8a8578", (x0 + xw) * TILE + zo, y0 * TILE + i + 1, zl, 2);
     }
+  }
+  // the deploy plaza: a ring of lighter pavers with a compass mark
+  const pz = city.plaza, pcx = ((pz.x0 + pz.x1 + 1) / 2) * TILE, pcy = ((pz.y0 + pz.y1 + 1) / 2) * TILE;
+  for (let y = -40; y <= 40; y++) for (let x = -40; x <= 40; x++) {
+    const d = Math.hypot(x, y);
+    if (at(Math.floor((pcx + x) / TILE), Math.floor((pcy + y) / TILE)) !== G.PLAZA) continue;
+    if ((d > 30 && d < 34) || (d > 14 && d < 16)) px(g, (Math.floor(Math.atan2(y, x) * 8 / Math.PI) & 1) ? "#4a463e" : "#524d44", pcx + x, pcy + y);
+    else if (d <= 3 || (d < 14 && (Math.abs(x) < 1 || Math.abs(y) < 1))) px(g, "#57524a", pcx + x, pcy + y);
   }
   return c;
 }
@@ -111,6 +120,8 @@ export const STYLES = [
   { roof: "#877758", roofLight: "#9d8c6a", roofDark: "#6c5e45", wall: "#6c5d45", wallDark: "#554834", win: "#2a2419", winLit: "#f2d27a", trim: "#b3a07a" },
   { roof: "#4a4f5b", roofLight: "#5d6371", roofDark: "#3a3e48", wall: "#31353e", wallDark: "#262930", win: "#35587a", winLit: "#9fd0ff", trim: "#6b7282" },
   { roof: "#948e80", roofLight: "#aaa495", roofDark: "#79736a", wall: "#7a7466", wallDark: "#625d52", win: "#262a31", winLit: "#f5dd95", trim: "#c2bba9" },
+  // 6: landmark tower, dark glass
+  { roof: "#3c4656", roofLight: "#566276", roofDark: "#2c3440", wall: "#233044", wallDark: "#1a2433", win: "#4f86b8", winLit: "#d8f0ff", trim: "#34445c" },
 ];
 
 /** Building sprite: W x (H + wall). stage 0 intact, 1 cracked, 2 wrecked. At night some windows
@@ -125,8 +136,17 @@ export function paintBuilding(b, stage, night = false) {
   px(g, s.roofDark, 1, H - 2, W - 2, 1); px(g, s.roofDark, W - 2, 1, 1, H - 2);
   px(g, s.roofDark, 3, 3, W - 6, 1); px(g, s.roofDark, 3, 3, 1, H - 6);   // inner parapet shadow
   for (let i = 0; i < 12 + W * H / 60; i++) px(g, rand() < 0.5 ? s.roofDark : s.roofLight, 4 + ((rand() * (W - 8)) | 0), 4 + ((rand() * (H - 8)) | 0));
-  // rooftop kit
-  const items = Math.max(1, Math.round((b.w * b.h) / 4));
+  // rooftop kit (the landmark gets a helipad instead)
+  if (b.landmark) {
+    const hx = W >> 1, hy = H >> 1, r = Math.min(W, H) / 2 - 5;
+    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
+      const d = Math.hypot(x, y);
+      if (d <= r) px(g, d > r - 1.5 ? "#d9a53a" : "#2e3542", hx + x, hy + y);
+    }
+    px(g, "#e6e6e0", hx - 3, hy - 3, 1, 7); px(g, "#e6e6e0", hx + 3, hy - 3, 1, 7); px(g, "#e6e6e0", hx - 3, hy, 7, 1);
+    for (const [cx, cy] of [[3, 3], [W - 4, 3], [3, H - 4], [W - 4, H - 4]]) px(g, "#ff5b4a", cx, cy);   // warning lights
+  }
+  const items = b.landmark ? 0 : Math.max(1, Math.round((b.w * b.h) / 4));
   for (let i = 0; i < items; i++) {
     const kind = rand();
     const x = 4 + ((rand() * Math.max(1, W - 14)) | 0), y = 4 + ((rand() * Math.max(1, H - 12)) | 0);

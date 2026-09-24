@@ -10,7 +10,7 @@ import { mulberry32 } from "./rng.js";
 export const TILE = 12, COLS = 56, ROWS = 56;
 export const T = { GROUND: 0, BUILDING: 1, RUBBLE: 2, WALL: 3 };
 export const G = { ROAD: 0, SIDEWALK: 1, PLAZA: 2, GRASS: 3, LOT: 4, ALLEY: 5, EDGE: 6 };
-export const BUILDING_STYLES = 6;
+export const BUILDING_STYLES = 6;   // plus style 6: the landmark tower
 
 const PLAZA = { x0: COLS / 2 - 5, y0: ROWS / 2 - 5, x1: COLS / 2 + 4, y1: ROWS / 2 + 4 };
 
@@ -45,11 +45,14 @@ export function generateCity(seed) {
   for (const [x0, w] of xs) for (let x = x0; x < x0 + w; x++) for (let y = 1; y < ROWS - 1; y++) { ground[idx(x, y)] = G.ROAD; roadDir[idx(x, y)] |= 1; }
   for (const [y0, w] of ys) for (let y = y0; y < y0 + w; y++) for (let x = 1; x < COLS - 1; x++) { ground[idx(x, y)] = G.ROAD; roadDir[idx(x, y)] |= 2; }
 
+  let tower = false;
   function addBuilding(x0, y0, x1, y1) {
     const w = x1 - x0 + 1, h = y1 - y0 + 1, area = w * h;
-    const height = area >= 9 ? (rand() < 0.45 ? 3 : 2) : area >= 6 ? (rand() < 0.35 ? 2 : 1) : 1;
-    const maxHp = Math.round(area * 24 * (0.6 + 0.35 * height));
-    const b = { id: buildings.length, x: x0, y: y0, w, h, height, style: ri(0, BUILDING_STYLES - 1), hp: maxHp, maxHp, dead: false, seed: ri(0, 1e9) };
+    const landmark = !tower && area >= 9 && w >= 3 && h >= 3 && rand() < 0.25;
+    if (landmark) tower = true;
+    const height = landmark ? 4 : area >= 9 ? (rand() < 0.45 ? 3 : 2) : area >= 6 ? (rand() < 0.35 ? 2 : 1) : 1;
+    const maxHp = Math.round(area * 24 * (0.6 + 0.35 * height) * (landmark ? 1.6 : 1));
+    const b = { id: buildings.length, x: x0, y: y0, w, h, height, style: landmark ? 6 : ri(0, BUILDING_STYLES - 1), hp: maxHp, maxHp, dead: false, seed: ri(0, 1e9), landmark };
     buildings.push(b);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { tile[idx(x, y)] = T.BUILDING; bid[idx(x, y)] = b.id; }
   }
@@ -80,18 +83,43 @@ export function generateCity(seed) {
     addBuilding(x0, y0, x1, y1);
   }
 
-  // blocks between consecutive roads
-  for (let i = 0; i < xs.length - 1; i++) for (let j = 0; j < ys.length - 1; j++) {
-    const bx0 = xs[i][0] + xs[i][1], bx1 = xs[i + 1][0] - 1, by0 = ys[j][0] + ys[j][1], by1 = ys[j + 1][0] - 1;
+  // blocks between consecutive roads; some neighbours merge across the street between them
+  // (superblocks), which breaks up the grid. Each block merges at most once, never into the plaza.
+  const nbx = xs.length - 1, nby = ys.length - 1, blocks = [], used = new Set();
+  const rectOf = (i, j) => [xs[i][0] + xs[i][1], ys[j][0] + ys[j][1], xs[i + 1][0] - 1, ys[j + 1][0] - 1];
+  const hitsPlaza = ([x0, y0, x1, y1]) => x1 >= PLAZA.x0 && x0 <= PLAZA.x1 && y1 >= PLAZA.y0 && y0 <= PLAZA.y1;
+  for (let i = 0; i < nbx; i++) for (let j = 0; j < nby; j++) {
+    if (used.has(i + "," + j)) continue;
+    const r = rectOf(i, j);
+    used.add(i + "," + j);
+    const right = i + 1 < nbx && !used.has(i + 1 + "," + j), down = j + 1 < nby && !used.has(i + "," + (j + 1));
+    const roll = rand();
+    if (!hitsPlaza(r) && roll < 0.22 && (right || down)) {
+      const horiz = right && (!down || rand() < 0.5), o = horiz ? rectOf(i + 1, j) : rectOf(i, j + 1);
+      if (!hitsPlaza(o)) {
+        used.add(horiz ? i + 1 + "," + j : i + "," + (j + 1));
+        const m = [Math.min(r[0], o[0]), Math.min(r[1], o[1]), Math.max(r[2], o[2]), Math.max(r[3], o[3])];
+        for (let y = m[1]; y <= m[3]; y++) for (let x = m[0]; x <= m[2]; x++) roadDir[idx(x, y)] = 0;   // the street between goes
+        blocks.push({ r: m, merged: true });
+        continue;
+      }
+    }
+    blocks.push({ r, merged: false });
+  }
+  for (const { r: [bx0, by0, bx1, by1], merged } of blocks) {
     if (bx1 < bx0 || by1 < by0) continue;
     fill(bx0, by0, bx1, by1, G.SIDEWALK);
     const ix0 = bx0 + 1, iy0 = by0 + 1, ix1 = bx1 - 1, iy1 = by1 - 1;
     if (ix1 < ix0 || iy1 < iy0) continue;
     const r = rand();
-    if (r < 0.1) {
+    if (r < (merged ? 0.35 : 0.1)) {
       fill(ix0, iy0, ix1, iy1, G.GRASS);
+      // footpaths across the park
+      const px0 = ri(ix0 + 1, ix1 - 1), py0 = ri(iy0 + 1, iy1 - 1);
+      for (let x = ix0; x <= ix1; x++) ground[idx(x, py0)] = G.PLAZA;
+      for (let y = iy0; y <= iy1; y++) ground[idx(px0, y)] = G.PLAZA;
       for (let y = iy0; y <= iy1; y++) for (let x = ix0; x <= ix1; x++) {
-        if (!inPlaza(x, y) && rand() < 0.28) props.push({ type: "tree", x: (x + 0.3 + rand() * 0.4) * TILE, y: (y + 0.3 + rand() * 0.4) * TILE, v: ri(0, 2), broken: false });
+        if (!inPlaza(x, y) && ground[idx(x, y)] === G.GRASS && rand() < 0.28) props.push({ type: "tree", x: (x + 0.3 + rand() * 0.4) * TILE, y: (y + 0.3 + rand() * 0.4) * TILE, v: ri(0, 2), broken: false });
       }
     } else if (r < 0.18) {
       fill(ix0, iy0, ix1, iy1, G.LOT);
@@ -115,7 +143,7 @@ export function generateCity(seed) {
   }
 
   return {
-    seed, tile, ground, bid, roadDir, buildings, props, roads: { xs, ys },
+    seed, tile, ground, bid, roadDir, buildings, props, roads: { xs, ys }, plaza: PLAZA,
     spawn: { x: (COLS / 2) * TILE, y: (ROWS / 2) * TILE },
     w: COLS * TILE, h: ROWS * TILE,
     version: 0,        // bumps whenever the walkable map changes
