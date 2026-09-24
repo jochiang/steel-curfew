@@ -1,7 +1,7 @@
 import { ARENA, ENEMIES, WEAPONS } from "./content.js";
 import { weaponsOffline } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
-import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, OUTLINE } from "./art.js";
+import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 
@@ -155,6 +155,29 @@ export function createRenderer(canvas) {
     night: { ambient: "#1c2439", vig: 2 },
   };
 
+  // Drifting fog: two tiled layers blown across the city on a per-run wind. Drawn before the light
+  // map, so at night it only shows where something lights it (haze around lamps, signs, beams).
+  const FOG = {
+    day: { color: "#c9d2dc", alpha: 0.13 },
+    dusk: { color: "#e2c2b4", alpha: 0.15 },
+    night: { color: "#b8c4dc", alpha: 0.22 },
+  };
+  const fogs = new Map();
+  const fogOf = (tod, layer) => {
+    const k = tod + layer;
+    if (!fogs.has(k)) fogs.set(k, fogTexture(FOG[tod].color, 256, layer ? 91 : 7, FOG[tod].alpha * (layer ? 0.7 : 1)));
+    return fogs.get(k);
+  };
+  function drawFog(run, left, top, t) {
+    const tod = FOG[run.tod] ? run.tod : "day", a = ((run.seed % 628) / 100), wx = Math.cos(a), wy = Math.sin(a) * 0.5;
+    for (let layer = 0; layer < 2; layer++) {
+      const tex = fogOf(tod, layer), sp = layer ? 11 : 6.5, par = layer ? 1.15 : 1;
+      // world-anchored (with a little parallax on the top layer), drifting with the wind
+      const ox = -(((left * par + wx * sp * t) % 256) + 256) % 256, oy = -(((top * par + wy * sp * t) % 256) + 256) % 256;
+      for (let y = oy; y < buf.height; y += 256) for (let x = ox; x < buf.width; x += 256) g.drawImage(tex, Math.round(x), Math.round(y));
+    }
+  }
+
   function draw(run, dt, input) {
     updateCamera(run, dt);
     syncFloor(run);
@@ -250,6 +273,8 @@ export function createRenderer(canvas) {
       g.globalAlpha = k * 0.55; g.fillStyle = q.color; g.fillRect(X(q.x) - (sz >> 1), Y(q.y) - (sz >> 1), sz, sz);
     }
     g.globalAlpha = 1;
+
+    drawFog(run, left, top, t);
 
     // ---- night / dusk: multiply the scene by a light map
     if (night) {

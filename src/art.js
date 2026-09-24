@@ -216,3 +216,35 @@ export function bigSalvageFrames() {
   const base = ["...o...", "..o3o..", ".o232o.", "o22222o", ".o121o.", "..o1o..", "...o..."];
   return [0, 1, 2].map((k) => build(base.map((r, y) => (y === 2 + k ? r.replace(/2/, "3") : r)), p));
 }
+
+// ---------------------------------------------------------------- atmosphere
+/** Tileable fog: fractal value noise, quantized to a few faint alpha steps with 4x4 ordered
+ *  dithering so it reads as pixel art. size must be a power of two. */
+export function fogTexture(color, size = 256, seed = 7, maxAlpha = 0.12) {
+  let s = seed >>> 0;
+  const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const octave = (cells) => {
+    const lat = Array.from({ length: cells * cells }, rnd), at = (x, y) => lat[((y % cells + cells) % cells) * cells + ((x % cells + cells) % cells)];
+    const sm = (t) => t * t * (3 - 2 * t);
+    return (px, py) => {
+      const fx = (px / size) * cells, fy = (py / size) * cells, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = sm(fx - x0), ty = sm(fy - y0);
+      const a = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx, b = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
+      return a + (b - a) * ty;
+    };
+  };
+  const oct = [[octave(4), 0.55], [octave(8), 0.28], [octave(16), 0.17]];
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const c = new OffscreenCanvas(size, size), g = c.getContext("2d"), img = g.createImageData(size, size);
+  const r = parseInt(color.slice(1, 3), 16), gr = parseInt(color.slice(3, 5), 16), bl = parseInt(color.slice(5, 7), 16);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let n = 0;
+    for (const [f, w] of oct) n += f(x, y) * w;
+    let v = Math.max(0, Math.min(1, (n - 0.42) / 0.3));           // only the denser wisps show
+    v = v * 3 + (BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.5) * 0.9;  // dither between 4 steps
+    const step = Math.max(0, Math.min(3, Math.round(v)));
+    const i = (y * size + x) * 4;
+    img.data[i] = r; img.data[i + 1] = gr; img.data[i + 2] = bl; img.data[i + 3] = Math.round((step / 3) * maxAlpha * 255);
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
