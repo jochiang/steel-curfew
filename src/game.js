@@ -49,7 +49,7 @@ export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "al
     player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
-    shake: 0, spawnT: 0, bossSpawned: false,
+    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false,
     shop: { offers: [], rerolls: 0 },
     stats: null, load: 0,
   };
@@ -138,7 +138,7 @@ export function update(run, dt, move) {
   for (const m of run.marks) {
     if ((m.t -= dt) > 0) continue;
     const d = ENEMIES[m.type], hp = d.hp * waveHpMul(run.wave);
-    run.enemies.push({ type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, shootT: (d.shootEvery || d.burstEvery || 0) * (0.5 + rand() * 0.5), dead: false });
+    run.enemies.push({ type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), shootT: (d.shootEvery || d.burstEvery || 0) * (0.5 + rand() * 0.5), dead: false });
   }
   run.marks = run.marks.filter((m) => m.t > 0);
 
@@ -239,6 +239,7 @@ export function update(run, dt, move) {
     if (plans.some(([, pl]) => pl.ready)) {
       for (const [w, pl] of plans) discharge(run, w, pl.aim);
       cap.vent = cap.ventMax = times.vent; cap.hold = 0;
+      run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
       run.shake = Math.max(run.shake, 5);
       if (s.ventBurst) {
         near(p.x, p.y, 60, (e) => {
@@ -264,6 +265,10 @@ export function update(run, dt, move) {
       const sp = Math.hypot(sh.vx, sh.vy);
       hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
       sh.life = 0;
+      for (let i = 0; i < 3; i++) {
+        const a = Math.atan2(-sh.vy, -sh.vx) + (rand() - 0.5) * 1.8, v = 40 + rand() * 60;
+        run.parts.push({ x: sh.x, y: sh.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.15, max: 0.15, color: "#ffe9a8", size: 1, spark: true });
+      }
     }
   }
   run.shots = run.shots.filter((sh) => sh.life > 0);
@@ -384,6 +389,7 @@ function hitEnemy(run, e, dmg, kx, ky) {
   run.texts.push({ x: e.x + (run.rand() - 0.5) * 6, y: e.y - e.d.r, n: Math.round(dmg), t: 0.6, max: 0.6 });
   if (e.hp > 0) return;
   e.dead = true; run.kills++;
+  run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
   for (let i = 0; i < 7 + e.d.r; i++) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
     run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0) });
@@ -393,7 +399,7 @@ function hitEnemy(run, e, dmg, kx, ky) {
     const v = n >= 5 ? 5 : 1; n -= v;
     run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
   }
-  if (e.d.boss) run.shake = Math.max(run.shake, 8);
+  if (e.d.boss) { run.shake = Math.max(run.shake, 10); run.freeze = 0.18; }
 }
 
 function hurtPlayer(run, dmg) {
@@ -406,7 +412,7 @@ function hurtPlayer(run, dmg) {
 
 function steam(run) {
   const p = run.player, a = -Math.PI / 2 + (run.rand() - 0.5) * 1.6;
-  run.parts.push({ x: p.x + (run.rand() - 0.5) * 10, y: p.y - 4, vx: Math.cos(a) * 25, vy: Math.sin(a) * 30, t: 0.6, max: 0.6, color: "#dfe7ee", size: 2, steam: true });
+  run.parts.push({ x: p.x + (run.rand() - 0.5) * 10, y: p.y - 4, vx: Math.cos(a) * 18, vy: Math.sin(a) * 26 - 6, t: 0.7, max: 0.7, color: "#d9e2ea", size: 2, steam: true });
 }
 
 function tickFx(run, dt) {

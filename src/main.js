@@ -3,17 +3,18 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, update, nextWave } from "./game.js";
+import { newRun, update, nextWave, startWave } from "./game.js";
 import { show, renderTitle, renderHangar, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop } from "./bot.js";
 
-// URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&go (skip title) &bot (autopilot) &ts=4 (time scale)
+// URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&wave=3&go (skip title) &bot (autopilot) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
 const BOT = params.has("bot");
 const TIME_SCALE = Math.max(0.1, Math.min(16, +params.get("ts") || 1));
 const STEP = 1 / 60;
 
 const canvas = document.getElementById("game");
+if (params.has("sheet")) { (await import("./sheet.js")).drawSheet(canvas); throw new Error("sprite sheet mode"); }
 const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);
@@ -28,6 +29,7 @@ let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = 
 
 function deploy() {
   run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting });
+  if (params.has("wave")) { run.wave = Math.max(0, Math.min(4, +params.get("wave") - 1)); startWave(run); }
   paused = false; acc = 0; shownPhase = "";
   input.reset();
   syncScreens();
@@ -72,7 +74,8 @@ if (!BOT) {
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (run && run.phase === "combat" && !paused) {
+  if (run && run.phase === "combat" && !paused && run.freeze > 0) run.freeze -= dt;
+  else if (run && run.phase === "combat" && !paused) {
     acc += dt * TIME_SCALE;
     let steps = 0;
     const maxSteps = Math.ceil(6 * TIME_SCALE);
