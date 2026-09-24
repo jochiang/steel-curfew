@@ -3,6 +3,7 @@ import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes,
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
+import { mechFrames } from "./art.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -28,8 +29,8 @@ export function renderTitle(opts, onDeploy) {
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
-      <h1>MECH<span>ARENA</span></h1>
-      <p class="sub">greybox build · 5 waves · Warden frame</p>
+      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="19" height="19" aria-hidden="true"></canvas></div>
+      <p class="sub">prototype · 5 waves · Warden frame</p>
       <h3>Starting weapon</h3>
       <div class="picks">${cards}</div>
       <p class="pick-desc fam-${sel.family}"><b>${esc(sel.name)}:</b> ${esc(sel.desc)}</p>
@@ -53,6 +54,25 @@ export function renderTitle(opts, onDeploy) {
     renderTitle(opts, onDeploy);
   };
   show("title");
+  animateTitleMech($(".title-mech", el));
+}
+
+// the Warden idling/walking in place next to the logo
+let titleAnim = 0;
+const titleFrames = { cold: null, hot: null };
+function animateTitleMech(cv) {
+  cancelAnimationFrame(titleAnim);
+  titleFrames.cold ??= mechFrames(false);
+  titleFrames.hot ??= mechFrames(true, 0);
+  const g = cv.getContext("2d");
+  const tick = (t) => {
+    if (!cv.isConnected) return;
+    const s = t / 1000, walking = s % 6 < 4, hot = s % 6 > 4.6;
+    g.clearRect(0, 0, 19, 19);
+    g.drawImage((hot ? titleFrames.hot : titleFrames.cold)[walking ? Math.floor(s * 7) % 4 : 0], 0, 0);
+    titleAnim = requestAnimationFrame(tick);
+  };
+  titleAnim = requestAnimationFrame(tick);
 }
 
 // ---------------------------------------------------------------- hangar
