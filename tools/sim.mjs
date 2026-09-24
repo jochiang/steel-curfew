@@ -1,7 +1,7 @@
 // Headless balance sim: the bot plays full runs in Node, no browser.
 //   node tools/sim.mjs [runs=40] [start=all] [vent=all|energy|both] [targeting=crowd|heavies|nearest] [chassis=warden]
 import { newRun, update, nextWave } from "../src/game.js";
-import { botMove, botShop } from "../src/bot.js";
+import { botMove, botShop, botLevelUp } from "../src/bot.js";
 import { WEAPONS, WAVES } from "../src/content.js";
 
 const [runs = 40, startArg = "all", ventArg = "both", targeting = "crowd", chassis = "warden"] = process.argv.slice(2);
@@ -15,6 +15,7 @@ function play(seed, start, ventMode) {
   const run = newRun({ seed, chassis, start, ventMode, targeting });
   let hpLow = 1, ventTime = 0, t = 0;
   while (run.phase !== "dead" && run.phase !== "won" && t < 60 * 60 * 10) {
+    if (run.phase === "levelup") { botLevelUp(run); continue; }
     if (run.phase === "hangar") { botShop(run); nextWave(run); continue; }
     update(run, STEP, botMove(run));
     if (run.cap.vent > 0) ventTime += STEP;

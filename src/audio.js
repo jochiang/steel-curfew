@@ -86,6 +86,7 @@ const SFX = {
     tone("sine", 1500, 520, Math.max(0.3, (e.dur || 1.2) - 0.15), 0.018, { when: 0.12, attack: 0.2 })),   // falling whistle
   fuse: () => gate("fuse", 60) && (tone("square", 1400, 1400, 0.04, 0.03), tone("square", 1400, 1400, 0.04, 0.03, { when: 0.12 })),
   crunch: () => gate("crunch", 60) && (hiss(0.08, 0.12, { f0: 1100, f1: 500, q: 2 }), tone("square", 180, 60, 0.06, 0.05)),
+  levelup: () => [523, 784, 1047].forEach((f, i) => tone("square", f, f, 0.1, 0.05, { when: i * 0.06 })),
   charged: () => { tone("sine", 660, 660, 0.08, 0.06); tone("sine", 990, 990, 0.12, 0.05, { when: 0.07 }); },
   pickup: () => {
     const now = performance.now();

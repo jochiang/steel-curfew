@@ -458,13 +458,14 @@ export function createRenderer(canvas) {
     // ---- native-res layer
     const toScreen = (wx, wy) => [(wx - left) * S, (wy - top) * S];
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.round(7 * S)}px "Pixelify Sans", ui-monospace, monospace`;
+    const font = `700 ${Math.round(7 * S)}px "Pixelify Sans", ui-monospace, monospace`, bigFont = `700 ${Math.round(10 * S)}px "Pixelify Sans", ui-monospace, monospace`;
     for (const tx of run.texts) {
       const [x, y] = toScreen(tx.x, tx.y);
+      ctx.font = tx.big ? bigFont : font;
       ctx.globalAlpha = Math.min(1, (tx.t / tx.max) * 2);
       ctx.fillStyle = OUTLINE;
       for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.fillText(tx.n, x + dx * S * 0.5, y + dy * S * 0.5);
-      ctx.fillStyle = tx.n >= 40 ? C.energy : "#f4f1ea"; ctx.fillText(tx.n, x, y);
+      ctx.fillStyle = tx.big ? "#9fe8ff" : tx.n >= 40 ? C.energy : "#f4f1ea"; ctx.fillText(tx.n, x, y);
     }
     ctx.globalAlpha = 1;
     if (p.hurt > 0) {

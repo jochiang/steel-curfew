@@ -2,7 +2,7 @@
 // would be in a short step ahead, whether the way is open, and a nudge towards salvage; keeps
 // some momentum so it doesn't dither. Not meant to be good, just to exercise the loop.
 import { WEAPONS } from "./content.js";
-import { blocked, buy } from "./game.js";
+import { blocked, buy, choosePerk } from "./game.js";
 import { solidAt } from "./city.js";
 
 let lastA = 0;
@@ -36,6 +36,10 @@ export function botMove(run) {
   if (!best) return { x: 0, y: 0 };
   lastA = best.a;
   return { x: Math.cos(best.a), y: Math.sin(best.a) };
+}
+
+export function botLevelUp(run) {
+  while (run.phase === "levelup") choosePerk(run, 0);
 }
 
 export function botShop(run) {

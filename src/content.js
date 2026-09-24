@@ -176,6 +176,26 @@ export const SHOP = {
   waveBonus: (w) => 8 + 4 * w,
 };
 
+// Pilot level-ups: kills give XP; each level is one pick of four at the end of the wave.
+export const XP = { next: (level) => 10 + 6 * level, rareChance: (level) => Math.min(0.45, 0.12 + 0.03 * level), rerollBase: 2 };
+// [name, desc, fx common, fx rare]
+export const PERKS = {
+  hull:     ["Reinforced Hull", "max HP",             { maxHp: 8 },          { maxHp: 18 }],
+  plating:  ["Composite Plating", "armor",            { armor: 1 },          { armor: 2 }],
+  servos:   ["Servo Tuning", "speed",                 { speedMul: 0.05 },    { speedMul: 0.1 }],
+  repair:   ["Field Repairs", "HP/s repair",          { regen: 0.3 },        { regen: 0.7 }],
+  gunnery:  ["Gunnery", "ballistic damage",           { dmgBallistic: 0.08 }, { dmgBallistic: 0.16 }],
+  focusing: ["Focusing", "energy damage",             { dmgEnergy: 0.08 },   { dmgEnergy: 0.16 }],
+  brawler:  ["Brawler", "melee damage",               { dmgMelee: 0.08 },    { dmgMelee: 0.16 }],
+  optics:   ["Optics", "weapon range",                { rangeMul: 0.06 },    { rangeMul: 0.12 }],
+  loader:   ["Autoloader", "reload time",             { reloadMul: -0.08 },  { reloadMul: -0.16 }],
+  charge:   ["Charge Discipline", "capacitor charge", { fillMul: -0.06 },    { fillMul: -0.12 }],
+  coolant:  ["Coolant Routing", "vent time",          { ventMul: -0.08 },    { ventMul: -0.16 }],
+  magnet:   ["Scavenger", "salvage pickup range",     { pickup: 10 },        { pickup: 22 }],
+  reflexes: ["Reflexes", "glance chance",             { dodge: 0.04 },       { dodge: 0.08 }],
+  frame:    ["Frame Bracing", "tonnage capacity",     { capacity: 5 },       { capacity: 10 }],
+};
+
 export const PLAYER_IFRAMES = 0.4;
 export const PICKUP_RADIUS = 30;
 export const MAX_ENEMIES = 260;

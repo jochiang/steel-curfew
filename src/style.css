@@ -213,6 +213,22 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
   .primary { margin-top: 14px; }
 }
 
+/* ------------------------------------------------------------------ level up */
+.levelup-panel { max-width: 640px; }
+.levelup-panel header { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin-bottom: 16px; }
+.perks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.perk {
+  display: grid; gap: 4px; text-align: left; padding: 12px 14px; min-height: 92px; align-content: start;
+  background: var(--panel-2); border: 1px solid var(--line); --cut: 8px; --fam: #9fe8ff;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+.perk:hover, .perk:focus-visible { border-color: var(--fam); }
+.perk b { font-family: var(--px); font-size: 18px; }
+.perk-fx { color: var(--text); font-size: 14px; }
+.perk.rare { --fam: #e8c547; border-color: #8a7430; background: color-mix(in srgb, #e8c547 8%, var(--panel-2)); }
+.levelup-panel .reroll { margin-top: 14px; }
+.chip.rare { border-color: #8a7430; color: #f2dc8a; }
+
 /* ------------------------------------------------------------------ HUD */
 #hud {
   position: fixed; inset: 0 0 auto 0; z-index: 5; pointer-events: none;
@@ -224,6 +240,9 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .hp.bar { position: relative; width: min(200px, 36vw); height: 18px; }
 .hp i { background: linear-gradient(#ff8a70, #d9563f); transition: width 0.15s; }
 .hp span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; line-height: 1; }
+.xp.bar { position: relative; width: min(200px, 36vw); height: 12px; margin-top: -3px; }
+.xp i { background: linear-gradient(#2f7fa6, #1f5a73); transition: width 0.2s; }
+.xp span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 10px; line-height: 1; color: #bff4ff; }
 .salvage { font-size: 18px; color: var(--salvage); }
 .salvage b { font-weight: 500; }
 .hud-mid { text-align: center; }

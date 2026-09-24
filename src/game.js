@@ -1,6 +1,6 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
-  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -51,6 +51,7 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
+    xp: 0, level: 1, pending: 0, perks: [], perkOffers: [], perkRerolls: 0,
     stats: null, load: 0,
   };
   addWeapon(run, start, 0);
@@ -67,8 +68,9 @@ export function recompute(run) {
   const s = {
     maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
     rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
-    dodge: 0, ram: 0,
+    dodge: 0, ram: 0, capacity: 0,
   };
+  for (const pk of run.perks) for (const [k, v] of Object.entries(pk.fx)) s[k] += v;
   for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
   for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
   s.dodge = Math.min(0.6, s.dodge);
@@ -123,7 +125,8 @@ export const canMount = (chassis, family) => chassis.hardpoints.some((h) => h ==
 // ---------------------------------------------------------------- derived numbers (also used by UI)
 export const famDmg = (s, fam) => 1 + (fam === "ballistic" ? s.dmgBallistic : fam === "energy" ? s.dmgEnergy : s.dmgMelee);
 export const weaponDmg = (run, w) => WEAPONS[w.key].dmg * TIER_DMG[w.tier] * famDmg(run.stats, WEAPONS[w.key].family);
-export const speedOf = (run) => run.chassis.speed * loadSpeed(run.load, run.chassis.capacity) * (1 + run.stats.speedMul);
+export const capacityOf = (run) => run.chassis.capacity + (run.stats?.capacity || 0);
+export const speedOf = (run) => run.chassis.speed * loadSpeed(run.load, capacityOf(run)) * (1 + run.stats.speedMul);
 export function capTimes(run) {
   const en = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
   if (!en.length) return null;
@@ -715,6 +718,7 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
     run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0) });
   }
+  gainXp(run, e.d.salvage * (e.elite ? ELITE.salvage : 1));
   let n = e.d.salvage * (e.elite ? ELITE.salvage : 1);
   while (n > 0) {
     const v = n >= 5 ? 5 : 1; n -= v;
@@ -723,6 +727,15 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.d.boss) { run.shake = Math.max(run.shake, 10); run.freeze = 0.18; }
   if (e.d.r >= 9) breakProps(run, e.x, e.y, e.d.r + 6);
   if (e.d.blast) explode(run, e);   // shot sappers still go off: chain reactions
+}
+
+function gainXp(run, n) {
+  run.xp += n;
+  while (run.xp >= XP.next(run.level)) {
+    run.xp -= XP.next(run.level); run.level++; run.pending++;
+    run.texts.push({ x: run.player.x, y: run.player.y - 16, n: "LEVEL UP", t: 1.1, max: 1.1, big: true });
+    run.events.push({ type: "levelup" });
+  }
 }
 
 function hurtPlayer(run, dmg) {
@@ -782,14 +795,45 @@ function endWave(run) {
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
   run.clearing = 0;
   if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
-  run.phase = "hangar";
   run.shop.rerolls = 0;
   rollOffers(run);
+  if (run.pending > 0) { run.phase = "levelup"; run.perkRerolls = 0; rollPerks(run); }
+  else run.phase = "hangar";
 }
 
 export function nextWave(run) {
   run.wave++;
   startWave(run);
+}
+
+// ---------------------------------------------------------------- pilot level-ups
+export function rollPerks(run) {
+  const keys = Object.keys(PERKS), out = [];
+  while (out.length < 4) {
+    const k = keys[Math.floor(run.rand() * keys.length)];
+    if (out.some((o) => o.key === k)) continue;
+    const rare = run.rand() < XP.rareChance(run.level);
+    out.push({ key: k, rare, fx: PERKS[k][rare ? 3 : 2] });
+  }
+  run.perkOffers = out;
+}
+export const perkRerollCost = (run) => XP.rerollBase + run.perkRerolls + Math.floor(run.level / 3);
+export function rerollPerks(run) {
+  const c = perkRerollCost(run);
+  if (run.salvage < c) return false;
+  run.salvage -= c; run.perkRerolls++;
+  rollPerks(run);
+  return true;
+}
+export function choosePerk(run, i) {
+  const o = run.perkOffers[i];
+  if (!o || run.phase !== "levelup") return false;
+  run.perks.push({ key: o.key, rare: o.rare, fx: o.fx });
+  recompute(run);
+  run.pending--;
+  if (run.pending > 0) rollPerks(run);
+  else run.phase = "hangar";
+  return true;
 }
 
 // ---------------------------------------------------------------- hangar / shop
@@ -826,14 +870,14 @@ export function blocked(run, o) {
   if (run.salvage < o.price) return "Can't afford";
   if (o.kind === "module") {
     if (MODULES[o.key].unique && run.modules.includes(o.key)) return "Installed";
-    if (run.load + MODULES[o.key].weight > run.chassis.capacity) return "Over tonnage";
+    if (run.load + MODULES[o.key].weight > capacityOf(run)) return "Over tonnage";
     return null;
   }
   if (!fits(run, WEAPONS[o.key].family)) {
     if (run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3)) return null;   // merges instead
     return canMount(run.chassis, WEAPONS[o.key].family) ? "Hardpoints full" : `No ${WEAPONS[o.key].family} hardpoint`;
   }
-  if (run.load + WEAPONS[o.key].weight > run.chassis.capacity) return "Over tonnage";
+  if (run.load + WEAPONS[o.key].weight > capacityOf(run)) return "Over tonnage";
   return null;
 }
 

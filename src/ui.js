@@ -1,6 +1,7 @@
-import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, armorMul } from "./content.js";
+import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul } from "./content.js";
 import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits,
+  choosePerk, rerollPerks, perkRerollCost, capacityOf,
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { mechFrames } from "./art.js";
@@ -142,7 +143,7 @@ export function renderHangar(run, onDeploy) {
   const counts = {};
   for (const m of run.modules) counts[m] = (counts[m] || 0) + 1;
   const mods = Object.entries(counts).map(([k, n]) => `<span class="chip" title="${esc(MODULES[k].desc)}">${esc(MODULES[k].name)}${n > 1 ? ` ×${n}` : ""}</span>`).join("") || `<span class="none">none yet</span>`;
-  const loadPct = Math.min(100, (run.load / run.chassis.capacity) * 100);
+  const loadPct = Math.min(100, (run.load / capacityOf(run)) * 100);
   const targeting = times ? `
           <h3>Capacitor targeting</h3>
           <div class="seg seg3" role="radiogroup">${Object.entries(TARGETING).map(([k, t]) =>
@@ -167,8 +168,10 @@ export function renderHangar(run, onDeploy) {
           <div class="slots">${slots}</div>
           <h3>Modules</h3>
           <div class="chips">${mods}</div>
+          <h3>Pilot <em>level ${run.level}</em></h3>
+          <div class="chips">${perkChips(run)}</div>
           <h3>Frame · ${esc(run.chassis.name)} <em>${esc(run.chassis.quirk)}</em></h3>
-          <div class="load"><div class="bar"><i style="width:${loadPct}%"></i></div><span>${run.load} / ${run.chassis.capacity} t</span></div>
+          <div class="load"><div class="bar"><i style="width:${loadPct}%"></i></div><span>${run.load} / ${capacityOf(run)} t</span></div>
           <dl class="stats">
             <dt>Hull</dt><dd>${s.maxHp}</dd>
             <dt>Armor</dt><dd>${s.armor} <small>(−${Math.round((1 - armorMul(s.armor)) * 100)}% dmg)</small></dd>
@@ -202,11 +205,56 @@ export function renderHangar(run, onDeploy) {
   show("hangar");
 }
 
+function perkChips(run) {
+  if (!run.perks.length) return `<span class="none">no upgrades yet</span>`;
+  const counts = {};
+  for (const pk of run.perks) { const k = pk.key + (pk.rare ? "*" : ""); counts[k] = (counts[k] || 0) + 1; }
+  return Object.entries(counts).map(([k, n]) => { const key = k.replace("*", ""); return `<span class="chip${k.endsWith("*") ? " rare" : ""}">${esc(PERKS[key][0])}${n > 1 ? ` ×${n}` : ""}</span>`; }).join("");
+}
+
 function statLine(def, tier) {
   const m = [1, 1.6, 2.4, 3.5][tier];
   if (def.family === "ballistic") return `<span>${fmt(def.dmg * m)}${def.pellets > 1 ? `×${def.pellets}` : ""} dmg</span>`;
   if (def.family === "energy") return `<span>${fmt(def.dmg * m)} dmg · ${def.heat} heat</span>`;
   return `<span>${fmt(def.dmg * m)} dmg</span>`;
+}
+
+// ---------------------------------------------------------------- pilot level-up
+const pct = (v) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`;
+const FX_TEXT = {
+  maxHp: (v) => `+${v} max HP`, armor: (v) => `+${v} armor`, speedMul: (v) => `${pct(v)} speed`, regen: (v) => `+${v} HP/s repair`,
+  dmgBallistic: (v) => `${pct(v)} ballistic damage`, dmgEnergy: (v) => `${pct(v)} energy damage`, dmgMelee: (v) => `${pct(v)} melee damage`,
+  rangeMul: (v) => `${pct(v)} weapon range`, reloadMul: (v) => `${pct(v)} reload time`, fillMul: (v) => `${pct(v)} capacitor charge time`,
+  ventMul: (v) => `${pct(v)} vent time`, pickup: (v) => `+${v} salvage pickup range`, dodge: (v) => `${pct(v)} glance chance`,
+  capacity: (v) => `+${v} t tonnage capacity`,
+};
+export const fxText = (fx) => Object.entries(fx).map(([k, v]) => (FX_TEXT[k] ? FX_TEXT[k](v) : `${k} ${v}`)).join(", ");
+
+export function renderLevelUp(run, onDone) {
+  const el = $("#levelup"), lv = run.level - run.pending + 1;
+  const cards = run.perkOffers.map((o, i) => `
+    <button class="perk${o.rare ? " rare" : ""}" data-perk="${i}">
+      <span class="tag">${o.rare ? "Rare" : "Upgrade"}</span>
+      <b>${esc(PERKS[o.key][0])}</b>
+      <span class="perk-fx">${esc(fxText(o.fx))}</span>
+    </button>`).join("");
+  el.innerHTML = `
+    <div class="panel levelup-panel">
+      <header>
+        <div><h2>Pilot level ${lv}</h2><p class="sub">${run.pending > 1 ? `${run.pending} upgrades to choose` : "Choose an upgrade"}</p></div>
+        <div class="purse">◆ <b>${run.salvage}</b></div>
+      </header>
+      <div class="perks">${cards}</div>
+      <button class="reroll" data-reroll ${run.salvage < perkRerollCost(run) ? "disabled" : ""}>Reroll ◆ ${perkRerollCost(run)}</button>
+    </div>`;
+  el.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    if (b.dataset.perk) { choosePerk(run, +b.dataset.perk); sfx("buy"); }
+    else if ("reroll" in b.dataset) { rerollPerks(run); sfx("click"); }
+    if (run.phase === "levelup") renderLevelUp(run, onDone); else onDone();
+  };
+  show("levelup");
 }
 
 // ---------------------------------------------------------------- pause / end
@@ -253,6 +301,7 @@ export function updateHud(run) {
     hud.el = $("#hud");
     Object.assign(hud, {
       hpBar: $(".hp i", hud.el), hpText: $(".hp span", hud.el), salvage: $(".salvage span", hud.el),
+      xpBar: $(".xp i", hud.el), xpText: $(".xp span", hud.el),
       wave: $(".wave", hud.el), timer: $(".timer", hud.el), boss: $(".boss", hud.el),
       bossName: $(".boss span", hud.el), bossBar: $(".boss i", hud.el), banner: $(".banner", hud.el),
     });
@@ -261,6 +310,8 @@ export function updateHud(run) {
   set("hp", Math.ceil(p.hp) + "/" + run.stats.maxHp, (v) => (hud.hpText.textContent = v));
   set("hpw", Math.round((p.hp / run.stats.maxHp) * 1000) / 10, (v) => (hud.hpBar.style.width = v + "%"));
   set("sal", run.salvage, (v) => (hud.salvage.textContent = v));
+  set("xpw", Math.round((run.xp / XP.next(run.level)) * 100), (v) => (hud.xpBar.style.width = v + "%"));
+  set("xpt", `LV ${run.level}${run.pending ? ` · +${run.pending}` : ""}`, (v) => (hud.xpText.textContent = v));
   set("wave", `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
   const left = Math.max(0, Math.ceil(WAVES[run.wave].duration - run.waveTime));
   set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });

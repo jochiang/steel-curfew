@@ -4,8 +4,8 @@ import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
 import { newRun, update, nextWave, startWave } from "./game.js";
-import { show, renderTitle, renderHangar, renderPaused, renderEnd, updateHud } from "./ui.js";
-import { botMove, botShop } from "./bot.js";
+import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
+import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play } from "./audio.js";
 
 // URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
@@ -53,6 +53,10 @@ function syncScreens() {
   if (run.phase === "combat") {
     if (paused) renderPaused(run, resume, toTitle);
     else show(null);
+  } else if (run.phase === "levelup") {
+    input.reset();
+    if (BOT) { setTimeout(() => { botLevelUp(run); syncScreens(); }, 300); }
+    renderLevelUp(run, syncScreens);
   } else if (run.phase === "hangar") {
     input.reset();
     if (BOT) { botShop(run); setTimeout(() => { nextWave(run); syncScreens(); }, 400); }
