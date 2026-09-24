@@ -57,18 +57,29 @@ const last = {};
 const gate = (k, ms) => { const now = performance.now(); if (now - (last[k] ?? -Infinity) < ms) return false; last[k] = now; return true; };
 let pickupChain = 0, pickupAt = 0;
 
+// Weapons are pitched low with a sine "thump" under each hit for weight; a triangle an octave up
+// keeps that weight audible on phone speakers, which can't reproduce the fundamental.
 const SFX = {
-  shot: () => gate("shot", 55) && (tone("square", 520, 140, 0.05, 0.05), hiss(0.04, 0.08, { f0: 2400, q: 0.6 })),
-  flak: () => gate("flak", 90) && (hiss(0.12, 0.22, { type: "lowpass", f0: 2200, f1: 300 }), tone("triangle", 140, 60, 0.1, 0.12)),
+  shot: () => gate("shot", 55) && (tone("square", 300, 90, 0.05, 0.04), tone("sine", 120, 50, 0.07, 0.1), tone("triangle", 240, 96, 0.04, 0.04),
+    hiss(0.012, 0.05, { f0: 3200, q: 0.9 }), hiss(0.05, 0.06, { type: "lowpass", f0: 1800, f1: 400 })),
+  flak: () => gate("flak", 90) && (hiss(0.015, 0.08, { f0: 2800, q: 0.8 }), hiss(0.14, 0.22, { type: "lowpass", f0: 1400, f1: 150 }),
+    tone("triangle", 95, 38, 0.12, 0.16), tone("sine", 70, 32, 0.14, 0.18)),
   swing: (e) => gate("swing", 70) && (e.heavy
-    ? (tone("sine", 110, 45, 0.14, 0.28), hiss(0.08, 0.1, { f0: 700, f1: 300 }))
-    : hiss(0.07, 0.07, { f0: 3000, f1: 1200, q: 1.5 })),
-  hit: () => gate("hit", 35) && tone("square", 900 + Math.random() * 300, 500, 0.025, 0.025),
-  boom: (e) => gate("boom", 40) && (hiss(0.18 + e.r * 0.02, 0.14 + Math.min(0.2, e.r * 0.015), { type: "lowpass", f0: 1600, f1: 120 }),
-    tone("sine", 160 - e.r * 4, 40, 0.16 + e.r * 0.01, 0.16)),
-  beam: () => { tone("sawtooth", 1300, 160, 0.45, 0.13, { attack: 0.01 }); tone("sine", 90, 35, 0.35, 0.35); hiss(0.4, 0.12, { f0: 4000, f1: 800, q: 0.7 }); },
-  nova: () => { tone("sine", 140, 32, 0.45, 0.45); hiss(0.35, 0.16, { type: "lowpass", f0: 3000, f1: 200 }); tone("triangle", 600, 150, 0.25, 0.06); },
-  vent: (e) => { hiss(e.dur * 0.35, 0.08, { type: "highpass", f0: 5000, f1: 2200, attack: 0.05, hold: e.dur * 0.6 }); tone("sine", 220, 110, 0.18, 0.05, { when: 0.02 }); },
+    ? (tone("sine", 80, 32, 0.16, 0.32), tone("triangle", 160, 60, 0.1, 0.1), hiss(0.09, 0.12, { type: "lowpass", f0: 500, f1: 150 }))
+    : (hiss(0.08, 0.08, { f0: 1600, f1: 600, q: 1.2 }), tone("sine", 90, 50, 0.05, 0.08))),
+  hit: () => gate("hit", 35) && tone("square", 520 + Math.random() * 120, 260, 0.025, 0.022),
+  boom: (e) => gate("boom", 40) && (hiss(0.2 + e.r * 0.02, 0.14 + Math.min(0.2, e.r * 0.015), { type: "lowpass", f0: 1000, f1: 80 }),
+    tone("sine", 110 - e.r * 3, 30, 0.18 + e.r * 0.012, 0.22), tone("triangle", 220 - e.r * 6, 60, 0.12, 0.08)),
+  beam: () => { tone("sawtooth", 700, 70, 0.45, 0.12, { attack: 0.01 }); tone("sine", 65, 26, 0.4, 0.4); tone("triangle", 130, 50, 0.3, 0.12); hiss(0.4, 0.1, { f0: 2200, f1: 400, q: 0.7 }); },
+  nova: () => { tone("sine", 95, 24, 0.5, 0.5); tone("triangle", 190, 48, 0.3, 0.12); hiss(0.4, 0.18, { type: "lowpass", f0: 1800, f1: 100 }); },
+  vent: (e) => { hiss(e.dur * 0.35, 0.08, { type: "highpass", f0: 3500, f1: 1500, attack: 0.05, hold: e.dur * 0.6 }); tone("sine", 160, 80, 0.2, 0.06, { when: 0.02 }); },
+  collapse: (e) => {
+    const s = Math.min(1, (e.size || 6) / 16);
+    hiss(0.7 + s * 0.6, 0.18 + s * 0.12, { type: "lowpass", f0: 700, f1: 60, attack: 0.02 });
+    tone("sine", 55, 28, 0.9 + s * 0.4, 0.3); tone("triangle", 110, 45, 0.5, 0.1);
+    hiss(0.5, 0.1, { type: "lowpass", f0: 400, f1: 80, when: 0.18 });
+  },
+  crunch: () => gate("crunch", 60) && (hiss(0.08, 0.12, { f0: 1100, f1: 500, q: 2 }), tone("square", 180, 60, 0.06, 0.05)),
   charged: () => { tone("sine", 660, 660, 0.08, 0.06); tone("sine", 990, 990, 0.12, 0.05, { when: 0.07 }); },
   pickup: () => {
     const now = performance.now();
@@ -95,18 +106,22 @@ export function play(events) {
 export function ui(type) { if (ac && !muted && ac.state === "running") SFX[type]?.({}); }
 
 /** Test hook: render one effect offline and measure it (peak, RMS, audible length). */
-export async function probe(type, e = {}) {
-  const saved = [ac, master, noise];
+export async function probe(type, e = {}, filter = null) {
+  const saved = [ac, master, noise, Math.random];
   const off = new OfflineAudioContext(1, 44100 * 2, 44100);
-  ac = off; master = off.createGain(); master.gain.value = 0.55; master.connect(off.destination);
+  let seed = 12345;
+  Math.random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);   // repeatable noise
+  ac = off; master = off.createGain(); master.gain.value = 0.55;
+  if (filter) { const f = off.createBiquadFilter(); f.type = filter.type; f.frequency.value = filter.freq; f.Q.value = 0.7; master.connect(f).connect(off.destination); }
+  else master.connect(off.destination);
   noise = off.createBuffer(1, off.sampleRate, off.sampleRate);
   const nd = noise.getChannelData(0);
   for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
   for (const k in last) delete last[k];
-  try { SFX[type](e); } finally { [ac, master, noise] = saved; }
+  try { SFX[type](e); } finally { [ac, master, noise, Math.random] = saved; }
   const d = (await off.startRendering()).getChannelData(0);
   let peak = 0, sum = 0, end = 0;
   for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; sum += v * v; if (v > 0.01) end = i; }
-  return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / (end + 1)).toFixed(3), ms: Math.round((end / 44100) * 1000) };
+  return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / (end + 1)).toFixed(3), ms: Math.round((end / 44100) * 1000), energy: sum };
 }
 export const SFX_NAMES = Object.keys(SFX);
