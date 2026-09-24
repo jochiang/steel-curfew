@@ -112,13 +112,15 @@ export const ENEMIES = {
 
 // Wave table. pool: [type, weight]
 export const WAVES = [
-  { duration: 20, interval: 1.6, group: 3, pool: [["drone", 1]] },
-  { duration: 25, interval: 1.4, group: 4, pool: [["drone", 3], ["skitter", 1]] },
-  { duration: 30, interval: 1.2, group: 4, pool: [["drone", 3], ["skitter", 2], ["brute", 1]] },
-  { duration: 35, interval: 1.1, group: 5, pool: [["drone", 3], ["skitter", 2], ["brute", 1], ["spitter", 1]] },
-  { duration: 45, interval: 1.0, group: 5, pool: [["drone", 3], ["skitter", 2], ["brute", 2], ["spitter", 2]], boss: "crusher" },
+  { duration: 20, interval: 1.5, group: 3, pool: [["drone", 1]] },
+  { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1]] },
+  { duration: 30, interval: 1.35, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1]] },
+  { duration: 35, interval: 1.3, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1]] },
+  { duration: 45, interval: 1.25, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1]], boss: "crusher" },
 ];
-export const waveHpMul = (w) => 1 + 0.3 * w;   // w is 0-based
+export const waveHpMul = (w) => 1 + 0.25 * w;   // w is 0-based
+// spawn groups grow through a wave: +1 enemy per GROUP_GROW seconds, at most GROUP_GROW_MAX
+export const GROUP_GROW = 15, GROUP_GROW_MAX = 2;
 export const waveDmgMul = (w) => 1 + 0.15 * w;
 
 export const SHOP = {

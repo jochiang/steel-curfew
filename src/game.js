@@ -1,6 +1,6 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
-  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -133,7 +133,7 @@ export function update(run, dt, move) {
     run.spawnT -= dt;
     if (run.spawnT <= 0) {
       run.spawnT = wave.interval;
-      const n = wave.group + Math.floor(run.waveTime / 12);
+      const n = wave.group + Math.min(GROUP_GROW_MAX, Math.floor(run.waveTime / GROUP_GROW));
       const c = spawnPoint(run, 110);
       for (let i = 0, tries = 0; i < n && tries < n * 4 && run.enemies.length + run.marks.length < MAX_ENEMIES; tries++) {
         const x = c.x + (rand() - 0.5) * 36, y = c.y + (rand() - 0.5) * 36;
