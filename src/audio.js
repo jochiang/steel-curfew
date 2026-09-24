@@ -79,6 +79,12 @@ const SFX = {
     tone("sine", 55, 28, 0.9 + s * 0.4, 0.3); tone("triangle", 110, 45, 0.5, 0.1);
     hiss(0.5, 0.1, { type: "lowpass", f0: 400, f1: 80, when: 0.18 });
   },
+  missile: () => gate("missile", 70) && (hiss(0.18, 0.08, { f0: 700, f1: 2200, q: 1.2 }), tone("sine", 140, 70, 0.08, 0.08)),
+  flame: () => gate("flame", 90) && hiss(0.14, 0.07, { type: "lowpass", f0: 1100, f1: 500 }),
+  rail: () => { tone("square", 1600, 180, 0.05, 0.08); tone("sine", 70, 24, 0.5, 0.45); tone("triangle", 140, 45, 0.35, 0.12); hiss(0.3, 0.14, { f0: 3000, f1: 300, q: 0.8 }); },
+  lob: (e) => gate("lob", 90) && (tone("sine", 95, 45, 0.12, 0.14), hiss(0.05, 0.06, { type: "lowpass", f0: 900 }),
+    tone("sine", 1500, 520, Math.max(0.3, (e.dur || 1.2) - 0.15), 0.018, { when: 0.12, attack: 0.2 })),   // falling whistle
+  fuse: () => gate("fuse", 60) && (tone("square", 1400, 1400, 0.04, 0.03), tone("square", 1400, 1400, 0.04, 0.03, { when: 0.12 })),
   crunch: () => gate("crunch", 60) && (hiss(0.08, 0.12, { f0: 1100, f1: 500, q: 2 }), tone("square", 180, 60, 0.06, 0.05)),
   charged: () => { tone("sine", 660, 660, 0.08, 0.06); tone("sine", 990, 990, 0.12, 0.05, { when: 0.07 }); },
   pickup: () => {

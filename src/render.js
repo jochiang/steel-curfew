@@ -95,7 +95,7 @@ export function createRenderer(canvas) {
   const enemies = {};
   for (const k of Object.keys(ENEMIES)) {
     const frames = enemyFrames(k);
-    enemies[k] = { frames, flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")), glow: enemyFrames(k, true).map((f) => flash(f)) };
+    enemies[k] = { frames, elite: enemyFrames(k, false, true), flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")), glow: enemyFrames(k, true).map((f) => flash(f)) };
   }
   const shadows = new Map();
   const shadow = (w) => { if (!shadows.has(w)) shadows.set(w, shadowSprite(w)); return shadows.get(w); };
@@ -231,6 +231,11 @@ export function createRenderer(canvas) {
       const w = e.d.r * 2 + (e.d.boss ? 2 : 0), s = shadow(w);
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
+    for (const sh of run.shells) {   // an incoming shell's shadow grows as it drops
+      const k = sh.t / sh.dur, w = Math.max(2, Math.round(2 + k * 6)), s = shadow(w);
+      g.drawImage(s, X(sh.x0 + (sh.tx - sh.x0) * k) - (w >> 1), Y(sh.y0 + (sh.ty - sh.y0) * k));
+    }
+    for (const m of run.missiles) g.drawImage(shadow(3), X(m.x) - 1, Y(m.y));
     { const sw = run.chassis.radius * 2; g.drawImage(shadow(sw), X(p.x) - (sw >> 1), Y(p.y) + 8); }
     g.fillStyle = "rgba(5,6,10,0.4)";
     for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
@@ -245,7 +250,7 @@ export function createRenderer(canvas) {
     }
     for (const f of run.fx) if (f.type === "collapse") { const b = city.buildings[f.bid]; items.push([(b.y + b.h) * TILE, 1, b, f]); }
     for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) items.push([pr.y + 4, 2, pr]);
-    for (const e of run.enemies) items.push([e.y + e.d.r * 0.5, 3, e]);
+    for (const e of run.enemies) if (!e.d.flying) items.push([e.y + e.d.r * 0.5, 3, e]);
     items.push([p.y + 8, 4, p]);
     // projectiles sort in too, so a roof hides the ones flying behind it
     for (const b of run.bolts) items.push([b.y, 5, b]);
@@ -258,6 +263,7 @@ export function createRenderer(canvas) {
         const bx = X(o.x * TILE) + jit, by = Y(o.y * TILE - wallHeight(o));
         g.drawImage(spr, bx, by);
         shown.push([o, spr, bx, by]);
+        if (o.burn > 0 && Math.random() < dt * o.w * o.h * 1.5) flame((o.x + 0.2 + Math.random() * (o.w - 0.4)) * TILE, (o.y + 0.3 + Math.random() * (o.h - 0.4)) * TILE - wallHeight(o));
         if (stage === 2) {
           if (Math.random() < dt * (1 + o.w * o.h * 0.3)) smoke.push({ x: (o.x + Math.random() * o.w) * TILE, y: (o.y + Math.random() * o.h) * TILE - wallHeight(o), t: 1.4, max: 1.4 });
           if (Math.random() < dt * o.w * o.h * 0.6) flame((o.x + 0.2 + Math.random() * (o.w - 0.4)) * TILE, (o.y + 0.2 + Math.random() * (o.h - 0.4)) * TILE - wallHeight(o));
@@ -272,6 +278,21 @@ export function createRenderer(canvas) {
       else if (kind === 5) drawBolt(o, t, X, Y);
       else drawShot(o, X, Y);
     }
+    // airborne: flyers, missiles and shells are above the rooftops
+    for (const e of run.enemies) if (e.d.flying) drawEnemy(e, t, X, Y, false, 9);
+    for (const m of run.missiles) {
+      const x = X(m.x), y = Y(m.y - m.z), a = Math.atan2(m.vy, m.vx);
+      g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 1, 3, 3);
+      g.fillStyle = "#c9ced6"; g.fillRect(x, y, 1, 1);
+      g.fillStyle = "#ffb347"; g.fillRect(X(m.x - Math.cos(a) * 2), Y(m.y - m.z - Math.sin(a) * 2), 1, 1);
+    }
+    for (const sh of run.shells) {
+      const k = sh.t / sh.dur, x = X(sh.x0 + (sh.tx - sh.x0) * k), y = Y(sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46);
+      g.fillStyle = OUTLINE; g.fillRect(x - 2, y - 1, 5, 3); g.fillRect(x - 1, y - 2, 3, 5);
+      g.fillStyle = "#6a5a4a"; g.fillRect(x - 1, y - 1, 3, 3);
+      g.fillStyle = Math.floor(t * 16) % 2 ? "#ffb347" : "#ff6a3c"; g.fillRect(x, y, 1, 1);
+    }
+
     // fallen buildings smoulder for a while
     for (const [id, until] of burning) {
       if (t > until) { burning.delete(id); continue; }
@@ -315,8 +336,16 @@ export function createRenderer(canvas) {
       }
       if (blink) g.fillRect(x, y, 1, 1);
     }
+    // incoming shells: a ring where each will land, tightening as it drops
+    for (const sh of run.shells) {
+      const k = sh.t / sh.dur, x = X(sh.tx), y = Y(sh.ty);
+      g.fillStyle = Math.floor(t * (6 + k * 18)) % 2 ? "#ff8a70" : C.danger;
+      circlePx(g, x, y, sh.r);
+      circlePx(g, x, y, Math.max(1, sh.r * (1 - k)));
+    }
+
     // x-ray: units hidden behind a building are drawn again as faint silhouettes
-    for (const e of run.enemies) if (occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
+    for (const e of run.enemies) if (!e.d.flying && occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
     if (occluded(city, p.x, p.y + 8)) { const xr = mechSet(run.chassisKey).xray, [mx, my] = mechAt(xr, X, Y, p); g.globalAlpha = 0.6; g.drawImage(xr, mx, my); g.globalAlpha = 1; }
 
     // fire
@@ -342,6 +371,12 @@ export function createRenderer(canvas) {
         for (let o = -w / 2; o <= w / 2; o += 0.5) {
           const inner = Math.abs(o) / (w / 2);
           g.fillStyle = inner < 0.3 ? "#ffffff" : inner < 0.7 ? "#bff4ff" : "#4fb6de";
+          linePx(g, X(f.x1 + (nx / nl) * o), Y(f.y1 + (ny / nl) * o), X(f.x2 + (nx / nl) * o), Y(f.y2 + (ny / nl) * o));
+        }
+      } else if (f.type === "rail") {
+        const nx = -(f.y2 - f.y1), ny = f.x2 - f.x1, nl = Math.hypot(nx, ny), w = k > 0.6 ? 3 : k > 0.25 ? 2 : 1;
+        for (let o = -w / 2; o <= w / 2; o += 0.5) {
+          g.fillStyle = Math.abs(o) < 0.6 ? "#ffffff" : "#b48cff";
           linePx(g, X(f.x1 + (nx / nl) * o), Y(f.y1 + (ny / nl) * o), X(f.x2 + (nx / nl) * o), Y(f.y2 + (ny / nl) * o));
         }
       } else if (f.type === "ring") {
@@ -397,6 +432,9 @@ export function createRenderer(canvas) {
       const k = f.t / f.max;
       if (f.type === "beam") {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10), gl = glowOf(Math.round(9 * bloom), k > 0.5 ? "#1f5a73" : "#123846"), r = gl.width >> 1;
+        for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
+      } else if (f.type === "rail") {
+        const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 12), gl = glowOf(Math.round(7 * bloom), k > 0.5 ? "#3a2466" : "#1e1438"), r = gl.width >> 1;
         for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
       } else if (f.type === "boom" && k > 0.55) {
         const r = Math.round(f.r * 1.8 * bloom); g.drawImage(glowOf(r, "#6a3410"), X(f.x) - r, Y(f.y) - r);
@@ -515,9 +553,19 @@ export function createRenderer(canvas) {
     // fire
     for (const [id] of burning) { const b = city.buildings[id]; put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE); }
     for (const [b] of shown) if (stageOf(b) === 2) put(12 + b.w * 3 + Math.random() * 4, "#5a260a", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
+    // shells, missiles, fire
+    for (const sh of run.shells) { const k = sh.t / sh.dur; put(8, "#7a3a10", sh.x0 + (sh.tx - sh.x0) * k, sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46); put(sh.r + 4, "#3a0c08", sh.tx, sh.ty); }
+    for (const m of run.missiles) put(8, "#7a4a18", m.x, m.y - m.z);
+    for (const b of city.buildings) if (b.burn > 0 && !b.dead) put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
+    for (const e of run.enemies) if (e.burn > 0) put(10, "#5a2408", e.x, e.y);
     // weapon effects
     for (const f of run.fx) {
       const k = f.t / f.max;
+      if (f.type === "flamecone") put(30, "#8a4412", f.x, f.y);
+      else if (f.type === "rail") {
+        const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10);
+        for (let i = 0; i <= n; i++) put(18 * (0.5 + k * 0.5), "#5a3a9a", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
+      }
       if (f.type === "muzzle") put(22, "#8a7236", f.x, f.y);
       else if (f.type === "boom") put(f.r * 5 * (0.4 + k), k > 0.5 ? "#b8601e" : "#6a2e10", f.x, f.y);
       else if (f.type === "beam") {
@@ -529,11 +577,12 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawEnemy(e, t, X, Y, ghost) {
+  function drawEnemy(e, t, X, Y, ghost, alt = 0) {
     const set = enemies[e.type], n = set.frames.length;
-    const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
-    const spr = (ghost ? set.xray : e.flash > 0 ? set.flash : set.frames)[fi];
-    const bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
+    const rate = e.fuse ? 22 : e.type === "skitter" || e.type === "wasp" ? 12 : 4;
+    const fi = n > 1 ? Math.floor(t * rate + e.ph * 10) % n : 0;
+    const spr = (ghost ? set.xray : e.flash > 0 ? set.flash : e.elite ? set.elite : set.frames)[fi];
+    const bob = (e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0) - alt + (alt ? Math.round(Math.sin(t * 7 + e.ph * 6)) : 0);
     if (ghost) g.globalAlpha = 0.5;
     g.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
     if (ghost) g.globalAlpha = 1;

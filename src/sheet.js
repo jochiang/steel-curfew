@@ -6,7 +6,7 @@ export function drawSheet(canvas) {
   const Z = +new URLSearchParams(location.search).get("z") || 8;
   const rows = [
     ...MECH_KINDS.flatMap((k) => [[k, mechFrames(k, false)], [k + " hot", [mechFrames(k, true, 0)[0], mechFrames(k, true, 1)[2]]]]),
-    ...Object.keys(ENEMIES).map((k) => [k, enemyFrames(k)]),
+    ...Object.keys(ENEMIES).map((k) => [k, [...enemyFrames(k), ...(ENEMIES[k].boss ? [] : [enemyFrames(k, false, true)[0]])]]),
     ["salvage", [...salvageFrames(), ...bigSalvageFrames()]],
     ["glow", [glow(12, "#1f5a73"), glow(8, "#5a2410")]],
   ];

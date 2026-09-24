@@ -15,12 +15,13 @@ const RAMPS = {
   crimson: ["#2c0e14", "#641b25", "#9e2f34", "#d0594a", "#f29a7c"],
 };
 
-function pal(ramp, extra = {}) {
+function palOf(ramp, extra = {}) {
   const r = RAMPS[ramp];
   return { o: OUTLINE, 1: r[0], 2: r[1], 3: r[2], 4: r[3], 5: r[4], ...extra };
 }
 
-export function build(rows, palette, { sym = false, light = false, patch = [], only = null } = {}) {
+const pal = palOf;
+export function build(rows, palette, { sym = false, light = false, patch = [], only = null, edge = null } = {}) {
   let grid = rows.map((r) => [...r]);
   if (sym) {
     grid = grid.map((r) => {
@@ -31,9 +32,11 @@ export function build(rows, palette, { sym = false, light = false, patch = [], o
   for (const [x, y, ch] of patch) grid[y][x] = ch;
   const w = Math.max(...grid.map((r) => r.length)), h = grid.length;
   const c = new OffscreenCanvas(w, h), g = c.getContext("2d");
+  const empty = (x, y) => y < 0 || y >= h || x < 0 || x >= (grid[y]?.length ?? 0) || grid[y][x] === "." || grid[y][x] === " ";
   grid.forEach((r, y) => r.forEach((ch, x) => {
     if (ch === "." || ch === " " || (only && !only.includes(ch))) return;
-    const col = palette[ch];
+    // edge: recolour only outline pixels on the silhouette's rim (elite trim)
+    const col = edge && ch === "o" && (empty(x - 1, y) || empty(x + 1, y) || empty(x, y - 1) || empty(x, y + 1)) ? edge : palette[ch];
     if (!col) throw new Error(`no colour for '${ch}'`);
     g.fillStyle = col; g.fillRect(x, y, 1, 1);
   }));
@@ -135,6 +138,8 @@ const MECHS = {
     legY: 12,
   },
 };
+RAMPS.steelRust = ["#2a2426", "#4f4446", "#7a6a64", "#a8927e", "#d8c4a8"];
+RAMPS.teal = ["#12302e", "#235a55", "#3a8a80", "#6fbfb0", "#bfeee0"];
 RAMPS.sand = ["#3a3426", "#6a5e44", "#9c8c68", "#c8b890", "#ece0c0"];
 RAMPS.olive = ["#262a20", "#454c36", "#6a7552", "#96a278", "#cad4a8"];
 RAMPS.navy = ["#1c2230", "#333d55", "#56647f", "#8494b0", "#c0cce0"];
@@ -245,12 +250,62 @@ const CRUSHER = [
   "ooooooooooooooooo",
 ];
 
+const MORTAR = [
+  "......o",
+  ".....o4",
+  ".....o3",
+  "...ooo3",
+  "..o4443",
+  ".o44333",
+  "o433oEo",
+  "o32oooo",
+  "o222222",
+  ".o2o11o",
+  "oo.oo.o",
+];
+const SAPPER = [
+  ["......", ".....L", "...ooo", "..oyky", ".oykyk", "oykyky", "okykyk", ".okyky", "..oooo", "..o..o"],
+  ["......", ".....l", "...ooo", "..oyky", ".oykyk", "oykyky", "okykyk", ".okyky", "..oooo", "...o.o"],
+];
+const WASP = [
+  ["w.....", "ww..oo", ".wwo43", "..o43E", "...o22", "....o1", "......"],
+  ["......", "....oo", "...o43", "wwo43E", "www.22", "w...o1", "......"],
+];
+// Siege Walker (boss): four-legged artillery platform with a big mortar on its back
+const SIEGE = [
+  "..............o",
+  ".............o4",
+  ".............o3",
+  "............oo3",
+  "..........ooo43",
+  "......oooo44443",
+  ".....o455555533",
+  "....o4443333333",
+  "...o44ooooooooo",
+  "...o43oeEEeoooo",
+  "...o43ooooooooo",
+  "...o43333333332",
+  "ooo.o3322222222",
+  "o4o.o2222111111",
+  "o3o..oooooooooo",
+  "o3o...o21o...o2",
+  "o2o...o21o...o2",
+  "ooo..oo11oo..o1",
+  ".....oooooo..oo",
+];
+
 const EYE = { e: "#ff6a3c", E: "#ffe8b8" };
 
-/** Enemy frames. With glow, only the self-lit pixels (eyes, lens, acid sac, furnace). */
-export function enemyFrames(type, glow = false) {
-  const o = (only) => ({ sym: true, light: true, only: glow ? only : null });
+/** Enemy frames. With glow, only the self-lit pixels (eyes, lens, acid sac, furnace). Elites get
+ *  a gold outline. */
+export function enemyFrames(type, glow = false, elite = false) {
+  const o = (only) => ({ sym: true, light: true, only: glow ? only : null, edge: elite ? "#e8c547" : null });
+  const pal = (ramp, extra) => palOf(ramp, extra);
   switch (type) {
+    case "mortar": return [build(MORTAR, pal("steelRust", EYE), o("eE"))];
+    case "sapper": return SAPPER.map((f, k) => build(f, pal("amber", { y: "#e8c547", k: "#2a2620", L: "#ff3b2e", l: "#6a1a14" }), o(k ? "" : "L")));
+    case "wasp": return WASP.map((f) => build(f, pal("teal", { w: "#bfe8e8", E: "#fff4c2" }), o("E")));
+    case "siege": return [0, 1].map((k) => build(SIEGE, pal("steelRust", { ...EYE, E: k ? "#fff0c0" : "#ffb070" }), o("eE")));
     case "drone": return [build(DRONE, pal("rust", EYE), o("eE"))];
     case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), o("E")));
     case "brute": return [build(BRUTE, pal("violet", EYE), o("eE"))];

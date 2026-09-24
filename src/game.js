@@ -1,6 +1,6 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
-  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -47,7 +47,7 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     city: generateCity(seed),   // persists for the whole run: damage piles up wave after wave
     field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
-    enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
+    enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [],
     shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
@@ -82,7 +82,7 @@ export function startWave(run) {
   Object.assign(p, { x: run.city.spawn.x, y: run.city.spawn.y, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
   Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
-  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
+  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles"]) run[k].length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
 }
@@ -186,13 +186,19 @@ export function update(run, dt, move) {
   if (wave.boss && !run.bossSpawned && run.waveTime > 3) {
     run.bossSpawned = true;
     const c = spawnPoint(run, 180);
-    run.marks.push({ ...c, t: 1.6, max: 1.6, type: wave.boss });
+    run.marks.push({ ...c, t: 1.6, max: 1.6, type: Array.isArray(wave.boss) ? wave.boss[run.seed % wave.boss.length] : wave.boss });
     run.events.push({ type: "spawnBoss" });
   }
   for (const m of run.marks) {
     if ((m.t -= dt) > 0) continue;
-    const d = ENEMIES[m.type], hp = d.hp * waveHpMul(run.wave);
-    run.enemies.push({ type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), shootT: (d.shootEvery || d.burstEvery || 0) * (0.5 + rand() * 0.5), dead: false });
+    const d = ENEMIES[m.type], elite = !d.boss && !m.noElite && rand() < ELITE.chance(run.wave);
+    const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1);
+    run.enemies.push({
+      type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), dead: false, elite,
+      dmgMul: elite ? ELITE.dmg : 1, spdMul: elite ? ELITE.speed : 1,
+      shootT: (d.shootEvery || d.burstEvery || d.lobEvery || 0) * (0.5 + rand() * 0.5),
+      barT: (d.barrageEvery || 0) * 0.6, depT: (d.deployEvery || 0) * 0.5, burn: 0,
+    });
   }
   run.marks = run.marks.filter((m) => m.t > 0);
 
@@ -201,20 +207,51 @@ export function update(run, dt, move) {
   for (const e of run.enemies) {
     const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
     let mx = dx / dist, my = dy / dist;
-    if (d.keepAway && dist < d.keepAway && clearLine(city, e.x, e.y, p.x, p.y)) { mx *= -0.6; my *= -0.6; }
+    const lobber = d.lobEvery || d.barrageEvery;
+    if (d.flying) { /* straight at the mech, over everything */ }
+    else if (lobber && dist < d.keepAway) { mx *= -0.6; my *= -0.6; }            // artillery backs off...
+    else if (lobber && dist < d.keepAway * 1.3) { mx = 0; my = 0; }                // ...and holds at range
+    else if (d.keepAway && dist < d.keepAway && clearLine(city, e.x, e.y, p.x, p.y)) { mx *= -0.6; my *= -0.6; }
     else if (dist > 36) {   // follow the flow field (heavies use theirs, which goes through buildings)
       const st = steer(isHeavy(e) ? run.heavyField : run.field, e.x, e.y);
       if (st) { const sx = st.x - e.x, sy = st.y - e.y, sl = Math.hypot(sx, sy) || 1; mx = sx / sl; my = sy / sl; }
     }
-    const spd = d.speed * (e.crushing ? 0.45 : 1);
+    if (d.blast) {   // sapper: arm when close, stop, and go off
+      if (!e.fuse && dist < d.r + run.chassis.radius + 6) { e.fuse = d.blast.fuse; run.events.push({ type: "fuse" }); }
+      if (e.fuse) { mx = 0; my = 0; if ((e.fuse -= dt) <= 0) { explode(run, e); continue; } }
+    }
+    if (e.burn > 0) {   // on fire: damage ticks, and a few flames
+      e.burn -= dt; e.burnAcc = (e.burnAcc || 0) + dt;
+      if (e.burnAcc >= 0.3) { e.burnAcc = 0; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); if (e.dead) continue; }
+      if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1 });
+    }
+    const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul;
     e.crushing = false;
     e.x += (mx * spd + e.kx) * dt;
     e.y += (my * spd + e.ky) * dt;
     e.kx *= kbDecay; e.ky *= kbDecay;
     e.flash -= dt;
+    if (d.lobEvery && (e.shootT -= dt) <= 0 && dist < 260) {   // mortar: lob a shell at where the mech is
+      e.shootT = d.lobEvery;
+      lob(run, e.x, e.y - 6, p.x + (rand() - 0.5) * 16, p.y + (rand() - 0.5) * 16, d.shell, e.dmgMul);
+    }
+    if (d.barrageEvery && (e.barT -= dt) <= 0) {   // siege walker: shells around the mech
+      e.barT = d.barrageEvery;
+      for (let i = 0; i < d.barrage; i++) {
+        const a = rand() * Math.PI * 2, r = i === 0 ? 0 : 18 + rand() * 30;
+        lob(run, e.x, e.y - 12, p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, { ...d.shell, flight: d.shell.flight + i * 0.18 }, 1);
+      }
+    }
+    if (d.deployEvery && (e.depT -= dt) <= 0) {   // ...and drops sappers
+      e.depT = d.deployEvery;
+      for (let i = 0; i < d.deploy; i++) {
+        const a = rand() * Math.PI * 2, x = e.x + Math.cos(a) * (d.r + 10), y = e.y + Math.sin(a) * (d.r + 10);
+        if (!solidAt(city, x, y)) run.marks.push({ x, y, t: 0.5, max: 0.5, type: "sapper", noElite: true });
+      }
+    }
     if (d.shootEvery && (e.shootT -= dt) <= 0) {
       e.shootT = d.shootEvery;
-      run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
+      run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) * e.dmgMul });
       run.events.push({ type: "enemyShot" });
     }
     if (d.burstEvery && (e.shootT -= dt) <= 0) {
@@ -242,7 +279,8 @@ export function update(run, dt, move) {
     });
   }
   for (const e of run.enemies) {
-    collide(city, e, e.d.r, e.d.crush ? (ti) => { e.crushing = true; damageAt(city, ti, e.d.crush * dt * 0.5); } : null);
+    if (e.dead) continue;
+    if (!e.d.flying) collide(city, e, e.d.r, e.d.crush ? (ti) => { e.crushing = true; damageAt(city, ti, e.d.crush * dt * 0.5); } : null);
     if (e.d.crush && e.crushing) breakProps(run, e.x, e.y, e.d.r + 2);
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
     const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
@@ -252,9 +290,11 @@ export function update(run, dt, move) {
         const d = Math.hypot(dx, dy) || 1;
         hitEnemy(run, e, RAM.enemy * (1 + 0.3 * run.wave), (-dx / d) * RAM.knock, (-dy / d) * RAM.knock);
       }
-      hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave));
+      if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul);
     }
   }
+  // buildings on fire burn down
+  for (const b of city.buildings) if (b.burn > 0 && !b.dead) { b.burn -= dt; damageBuilding(city, b, 12 * dt, true); }
 
   // --- aim: face the nearest enemy, else the travel direction
   const nearest = nearestEnemy(run, 999);
@@ -268,6 +308,17 @@ export function update(run, dt, move) {
     if (def.family === "ballistic") {
       if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) w.mag = def.mag;
       if (offline || w.reloadT > 0 || w.cd > 0) continue;
+      if (def.missile) {   // missiles ignore cover: they arc over it
+        const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
+        if (!t) continue;
+        const m = mountPoint(run, run.weapons.indexOf(w)), a0 = Math.atan2(t.y - p.y, t.x - p.x) + (rand() - 0.5) * 1.6;
+        run.missiles.push({ x: m.x, y: m.y + 4, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: 0,
+          dmg: weaponDmg(run, w), aoe: def.missile.aoe, speed: def.missile.speed });
+        run.events.push({ type: "missile" });
+        w.cd = def.interval;
+        if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
+        continue;
+      }
       const t = sightedEnemy(run, def.range * (1 + s.rangeMul));
       if (!t) continue;
       const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
@@ -286,6 +337,25 @@ export function update(run, dt, move) {
       const t = nearestEnemy(run, reach + 10);
       if (!t || Math.hypot(t.x - p.x, t.y - p.y) > reach + t.d.r) continue;
       const a = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
+      if (def.burn) {   // flamethrower: a cone of fire that sets things alight
+        const burnDps = def.burn.dps * TIER_DMG[w.tier] * famDmg(s, "melee");
+        near(p.x, p.y, reach + 20, (e) => {
+          const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
+          if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
+          hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock, true);
+          e.burn = Math.max(e.burn, def.burn.dur); e.burnDps = Math.max(e.burnDps || 0, burnDps);
+        });
+        igniteInArc(run, a, def.arc, reach + 4, def.buildingBurn);
+        const m = mountPoint(run, run.weapons.indexOf(w));
+        for (let k = 0; k < 4; k++) {
+          const fa = a + (rand() - 0.5) * def.arc, v = 90 + rand() * 60;
+          run.parts.push({ x: m.x, y: m.y + 4, vx: Math.cos(fa) * v, vy: Math.sin(fa) * v, t: 0.2 + rand() * 0.12, max: 0.32, color: rand() < 0.4 ? "#fff1b0" : rand() < 0.6 ? "#ffb347" : "#e8602c", size: 2, fire: true });
+        }
+        run.fx.push({ type: "flamecone", x: p.x + Math.cos(a) * reach * 0.6, y: p.y + Math.sin(a) * reach * 0.6, t: 0.12, max: 0.12 });
+        run.events.push({ type: "flame" });
+        w.cd = def.cooldown;
+        continue;
+      }
       near(p.x, p.y, reach + 20, (e) => {
         const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
         if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
@@ -366,6 +436,33 @@ export function update(run, dt, move) {
     if (solidAt(city, b.x, b.y)) b.dead = true;
   }
   run.bolts = run.bolts.filter((b) => !b.dead);
+
+  // --- artillery shells: fly over everything, land where they were aimed
+  for (const sh of run.shells) {
+    if ((sh.t += dt) < sh.dur) continue;
+    sh.done = true;
+    blastAt(run, sh.tx, sh.ty, sh.r, { player: sh.dmg * waveDmgMul(run.wave) * sh.mul, building: sh.building });
+  }
+  run.shells = run.shells.filter((sh) => !sh.done);
+
+  // --- missiles: climb, home on their target, burst
+  for (const m of run.missiles) {
+    m.age += dt; m.z = Math.min(14, m.age * 50);
+    if (m.target && !m.target.dead) { m.tx = m.target.x; m.ty = m.target.y; }
+    const dx = m.tx - m.x, dy = m.ty - m.y, d = Math.hypot(dx, dy) || 1, sp = Math.min(m.speed, 60 + m.age * 260);
+    const k = Math.min(1, dt * 7);
+    m.vx += ((dx / d) * sp - m.vx) * k; m.vy += ((dy / d) * sp - m.vy) * k;
+    m.x += m.vx * dt; m.y += m.vy * dt;
+    if (rand() < 0.6) run.parts.push({ x: m.x, y: m.y - m.z, vx: (rand() - 0.5) * 8, vy: -6, t: 0.45, max: 0.45, color: "#9a9590", size: 1, steam: true });
+    if (d < 6 || m.age > 3) {
+      m.done = true;
+      near(m.tx, m.ty, m.aoe + 16, (e) => { if (Math.hypot(e.x - m.tx, e.y - m.ty) < m.aoe + e.d.r) hitEnemy(run, e, m.dmg, (e.x - m.tx) * 3, (e.y - m.ty) * 3); });
+      buildingsAround(run, m.tx, m.ty, m.aoe, m.dmg * BUILDING_DMG.ballistic * 0.6);
+      run.fx.push({ type: "boom", x: m.tx, y: m.ty, r: 6, t: 0.35, max: 0.35 });
+      run.events.push({ type: "boom", r: 5 });
+    }
+  }
+  run.missiles = run.missiles.filter((m) => !m.done);
   run.enemies = run.enemies.filter((e) => !e.dead);
 
   processCollapses(run);
@@ -418,6 +515,61 @@ function buildingsInArc(run, a, arc, reach, dmg) {
     if (d > reach || (d > 2 && angDiff(Math.atan2(ny - p.y, nx - p.x), a) > arc / 2 + 0.3)) continue;
     seen.add(id);
     damageBuilding(city, city.buildings[id], dmg);
+  }
+}
+
+/** Lob an artillery shell from (x0,y0) to land at (tx,ty) */
+function lob(run, x0, y0, tx, ty, shell, mul) {
+  if (solidAt(run.city, tx, ty)) { tx = run.player.x; ty = run.player.y; }
+  run.shells.push({ x0, y0, tx, ty, t: 0, dur: shell.flight, r: shell.radius, dmg: shell.dmg, building: shell.building, mul });
+  run.events.push({ type: "lob", dur: shell.flight });
+}
+
+/** An explosion on the ground: hurts the mech if it's inside, chews buildings, flattens props */
+function blastAt(run, x, y, r, { player = 0, building = 0, enemies = 0 } = {}) {
+  const p = run.player;
+  if (player && Math.hypot(p.x - x, p.y - y) < r + run.chassis.radius) hurtPlayer(run, player);
+  if (enemies) near(x, y, r + 16, (e) => { if (!e.dead && Math.hypot(e.x - x, e.y - y) < r + e.d.r) hitEnemy(run, e, enemies, (e.x - x) * 4, (e.y - y) * 4); });
+  if (building) buildingsAround(run, x, y, r, building);
+  breakProps(run, x, y, r * 0.6);
+  run.fx.push({ type: "boom", x, y, r: r * 0.5, t: 0.45, max: 0.45 });
+  run.shake = Math.max(run.shake, 3 + r / 8);
+  run.events.push({ type: "boom", r: r / 2 });
+}
+
+/** Sapper detonation (fuse ran out, or it was shot) */
+function explode(run, e) {
+  if (e.blown) return;
+  e.blown = true; e.dead = true;
+  const b = e.d.blast;
+  blastAt(run, e.x, e.y, b.radius, { player: b.dmg * waveDmgMul(run.wave) * e.dmgMul, building: b.building, enemies: b.enemyDmg * waveHpMul(run.wave) });
+}
+
+/** Damage each building with a tile within r of a point (once per building) */
+function buildingsAround(run, x, y, r, dmg) {
+  const city = run.city, seen = new Set();
+  for (let ty = Math.floor((y - r) / TILE); ty <= Math.floor((y + r) / TILE); ty++) for (let tx = Math.floor((x - r) / TILE); tx <= Math.floor((x + r) / TILE); tx++) {
+    if (tx < 0 || ty < 0 || tx >= TCOLS || ty >= TROWS) continue;
+    const id = city.bid[ty * TCOLS + tx];
+    if (id < 0 || seen.has(id) || city.buildings[id].dead) continue;
+    const nx = Math.max(tx * TILE, Math.min(x, (tx + 1) * TILE)), ny = Math.max(ty * TILE, Math.min(y, (ty + 1) * TILE));
+    if (Math.hypot(nx - x, ny - y) > r) continue;
+    seen.add(id);
+    damageBuilding(city, city.buildings[id], dmg);
+  }
+}
+
+/** Set buildings in a cone alight */
+function igniteInArc(run, a, arc, reach, secs) {
+  const p = run.player, city = run.city;
+  for (let ty = Math.floor((p.y - reach) / TILE); ty <= Math.floor((p.y + reach) / TILE); ty++) for (let tx = Math.floor((p.x - reach) / TILE); tx <= Math.floor((p.x + reach) / TILE); tx++) {
+    if (tx < 0 || ty < 0 || tx >= TCOLS || ty >= TROWS) continue;
+    const id = city.bid[ty * TCOLS + tx];
+    if (id < 0 || city.buildings[id].dead) continue;
+    const nx = Math.max(tx * TILE, Math.min(p.x, (tx + 1) * TILE)), ny = Math.max(ty * TILE, Math.min(p.y, (ty + 1) * TILE));
+    const d = Math.hypot(nx - p.x, ny - p.y);
+    if (d > reach || (d > 2 && angDiff(Math.atan2(ny - p.y, nx - p.x), a) > arc / 2 + 0.3)) continue;
+    city.buildings[id].burn = Math.max(city.buildings[id].burn || 0, secs);
   }
 }
 
@@ -522,11 +674,20 @@ function discharge(run, w, aim) {
   // beams pierce cover, cutting into every building on the line
   const cut = new Set();
   traverse(p.x, p.y, ex, ey, (tx, ty) => { const id = tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS ? run.city.bid[ty * TCOLS + tx] : -1; if (id >= 0) cut.add(id); return false; });
-  for (const id of cut) damageBuilding(run.city, run.city.buildings[id], dmg * BUILDING_DMG.energy);
+  const rail = def.kind === "rail";
+  for (const id of cut) damageBuilding(run.city, run.city.buildings[id], dmg * BUILDING_DMG.energy * (rail ? 0.7 : 1));
   const m = mountPoint(run, run.weapons.indexOf(w));
-  run.fx.push({ type: "beam", x1: m.x + Math.cos(bestA) * 8, y1: m.y + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: 0.3, max: 0.3 });
+  run.fx.push({ type: rail ? "rail" : "beam", x1: m.x + Math.cos(bestA) * 8, y1: m.y + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: rail ? 0.4 : 0.3, max: rail ? 0.4 : 0.3 });
+  if (rail) {
+    run.shake = Math.max(run.shake, 8);
+    const rand = run.rand;
+    for (let i = 0; i < 24; i++) {   // sparks shed along the slug's path
+      const f = rand(), a = bestA + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 20 + rand() * 50;
+      run.parts.push({ x: p.x + (ex - p.x) * f, y: p.y + (ey - p.y) * f, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.4, max: 0.4, color: rand() < 0.5 ? "#e6d4ff" : "#a67cff", size: 1 });
+    }
+  }
   p.aim = bestA;
-  run.events.push({ type: "beam" });
+  run.events.push({ type: rail ? "rail" : "beam" });
 }
 
 function beamHits(run, a, range, width) {
@@ -540,13 +701,13 @@ function beamHits(run, a, range, width) {
   return out;
 }
 
-function hitEnemy(run, e, dmg, kx, ky) {
+function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.dead) return;
-  e.hp -= dmg; e.flash = 0.08;
+  e.hp -= dmg; e.flash = quiet ? Math.max(e.flash, 0.03) : 0.08;
   const m = e.d.mass || 1;
   e.kx += kx / m; e.ky += ky / m;
-  run.texts.push({ x: e.x + (run.rand() - 0.5) * 6, y: e.y - e.d.r, n: Math.round(dmg), t: 0.6, max: 0.6 });
-  if (e.hp > 0) { run.events.push({ type: "hit" }); return; }
+  if (!quiet) run.texts.push({ x: e.x + (run.rand() - 0.5) * 6, y: e.y - e.d.r, n: Math.round(dmg), t: 0.6, max: 0.6 });
+  if (e.hp > 0) { if (!quiet) run.events.push({ type: "hit" }); return; }
   run.events.push({ type: "boom", r: e.d.r });
   e.dead = true; run.kills++;
   run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
@@ -554,13 +715,14 @@ function hitEnemy(run, e, dmg, kx, ky) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
     run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0) });
   }
-  let n = e.d.salvage;
+  let n = e.d.salvage * (e.elite ? ELITE.salvage : 1);
   while (n > 0) {
     const v = n >= 5 ? 5 : 1; n -= v;
     run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
   }
   if (e.d.boss) { run.shake = Math.max(run.shake, 10); run.freeze = 0.18; }
   if (e.d.r >= 9) breakProps(run, e.x, e.y, e.d.r + 6);
+  if (e.d.blast) explode(run, e);   // shot sappers still go off: chain reactions
 }
 
 function hurtPlayer(run, dmg) {
@@ -610,7 +772,7 @@ function clearWave(run) {
     run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.3 + run.rand() * 0.4, max: 0.7 });
   }
   if (run.enemies.length) run.events.push({ type: "boom", r: 10 });
-  for (const k of ["enemies", "bolts", "shots", "marks"]) run[k].length = 0;
+  for (const k of ["enemies", "bolts", "shots", "marks", "shells", "missiles"]) run[k].length = 0;
   run.shake = Math.max(run.shake, 4);
   run.events.push({ type: "waveClear" });
 }

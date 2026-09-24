@@ -87,6 +87,16 @@ export const WEAPONS = {
     desc: "Discharges a shockwave around the mech that hurls enemies back.",
     dmg: 30, range: 58, kind: "nova", knock: 160,
   },
+  missiles: {
+    name: "Missile Pod", family: "ballistic", weight: 7, price: 26,
+    desc: "Salvos of 3 homing missiles that arc over cover and burst on impact.",
+    dmg: 9, range: 170, interval: 0.16, mag: 3, reload: 2.2, missile: { speed: 150, aoe: 16 },
+  },
+  rail: {
+    name: "Railgun", family: "energy", weight: 9, price: 32, heat: 70,
+    desc: "Discharges a hypersonic slug that punches through everything, buildings included, across the map.",
+    dmg: 110, range: 340, width: 3, kind: "rail",
+  },
   fist: {
     name: "Hydraulic Fist", family: "melee", weight: 7, price: 16,
     desc: "Slow, heavy punches with big knockback.",
@@ -96,6 +106,11 @@ export const WEAPONS = {
     name: "Chainblade", family: "melee", weight: 5, price: 20,
     desc: "Fast sweeping cuts that hit everything in the arc.",
     dmg: 6, reach: 22, arc: 1.9, cooldown: 0.2, knock: 25,
+  },
+  pyre: {
+    name: "Pyre Projector", family: "melee", weight: 6, price: 22,
+    desc: "Sprays fire in a cone. Enemies burn; buildings catch fire and burn down.",
+    dmg: 2.5, reach: 34, arc: 0.8, cooldown: 0.1, knock: 4, burn: { dps: 5, dur: 2.5 }, buildingBurn: 5,
   },
 };
 
@@ -126,6 +141,13 @@ export const ENEMIES = {
   brute:   { name: "Brute",       hp: 60, speed: 28, dmg: 12, r: 9,  salvage: 5, color: "#8a4f7d", mass: 3, crush: 45 },
   spitter: { name: "Spitter",     hp: 16, speed: 34, dmg: 5,  r: 5,  salvage: 2, color: "#5aa36b",
              keepAway: 95, shootEvery: 2.2, boltSpeed: 90, boltDmg: 6 },
+  mortar:  { name: "Mortar",      hp: 30, speed: 26, dmg: 6,  r: 6,  salvage: 3, color: "#a8927e",
+             keepAway: 150, lobEvery: 3.4, shell: { flight: 1.3, radius: 22, dmg: 14, building: 30 } },
+  sapper:  { name: "Sapper",      hp: 12, speed: 58, dmg: 0,  r: 5,  salvage: 2, color: "#e8c547",
+             blast: { radius: 26, dmg: 18, enemyDmg: 30, building: 120, fuse: 0.35 } },
+  wasp:    { name: "Wasp",        hp: 8,  speed: 66, dmg: 5,  r: 4,  salvage: 1, color: "#6fbfb0", flying: true },
+  siege:   { name: "Siege Walker", hp: 900, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
+             keepAway: 120, barrageEvery: 5, barrage: 5, deployEvery: 8, deploy: 3, shell: { flight: 1.5, radius: 24, dmg: 16, building: 60 } },
   crusher: { name: "Crusher",     hp: 700, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
              burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
 };
@@ -133,12 +155,14 @@ export const ENEMIES = {
 // Wave table. pool: [type, weight]
 export const WAVES = [
   { duration: 20, interval: 1.5, group: 3, pool: [["drone", 1]] },
-  { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1]] },
-  { duration: 30, interval: 1.35, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1]] },
-  { duration: 35, interval: 1.3, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1]] },
-  { duration: 45, interval: 1.25, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1]], boss: "crusher" },
+  { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1], ["wasp", 1]] },
+  { duration: 30, interval: 1.7, group: 4, pool: [["drone", 6], ["skitter", 2], ["brute", 1], ["sapper", 1]] },
+  { duration: 35, interval: 1.4, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["wasp", 1]] },
+  { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege"] },
 ];
 export const waveHpMul = (w) => 1 + 0.25 * w;   // w is 0-based
+// Elites: tougher, gold-outlined versions of ordinary enemies (not bosses), from wave 2
+export const ELITE = { chance: (w) => (w >= 1 ? 0.02 + 0.012 * w : 0), hp: 3, dmg: 1.5, salvage: 4, speed: 0.9 };
 // spawn groups grow through a wave: +1 enemy per GROUP_GROW seconds, at most GROUP_GROW_MAX
 export const GROUP_GROW = 15, GROUP_GROW_MAX = 2;
 export const waveDmgMul = (w) => 1 + 0.15 * w;

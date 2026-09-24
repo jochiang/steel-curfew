@@ -220,9 +220,9 @@ export function damageAt(city, ti, dmg) {
   const id = city.bid[ti];
   return id >= 0 ? damageBuilding(city, city.buildings[id], dmg) : null;
 }
-export function damageBuilding(city, b, dmg) {
+export function damageBuilding(city, b, dmg, quiet = false) {
   if (!b || b.dead) return null;
-  b.hp -= dmg; b.hit = 0.12;
+  b.hp -= dmg; if (!quiet) b.hit = 0.12;
   if (b.hp > 0) return null;
   b.dead = true; b.hp = 0;
   for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) city.tile[y * COLS + x] = T.RUBBLE;
