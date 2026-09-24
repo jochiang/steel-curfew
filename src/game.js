@@ -34,7 +34,7 @@ function near(x, y, r, fn) {
 
 // ---------------------------------------------------------------- run setup
 export const TIMES_OF_DAY = ["day", "dusk", "night"];
-export function newRun({ seed = Date.now(), chassis = "warden", start = "autocannon", ventMode = "all", targeting = "crowd", tod = null } = {}) {
+export function newRun({ seed = Date.now(), chassis = "warden", start = "autocannon", ventMode = "all", targeting = "crowd", tod = null, allowed = null } = {}) {
   const todRoll = mulberry32((seed ^ 0x51ed27) >>> 0)();   // own stream, so it doesn't shift the game's rng
   const run = {
     rand: mulberry32(seed), seed, ventMode, targeting,
@@ -52,6 +52,8 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
     xp: 0, level: 1, pending: 0, perks: [], perkOffers: [], perkRerolls: 0,
+    allowed,                                             // weapon keys the shop may offer (null = all)
+    tally: { kills: 0, elites: 0, bosses: 0, buildings: 0 },   // for career progress
     stats: null, load: 0,
   };
   addWeapon(run, start, 0);
@@ -594,6 +596,7 @@ function processCollapses(run) {
   const city = run.city;
   while (city.collapsed.length) {
     const b = city.buildings[city.collapsed.shift()];
+    run.tally.buildings++;
     const cx = (b.x + b.w / 2) * TILE, cy = (b.y + b.h / 2) * TILE;
     run.fx.push({ type: "collapse", bid: b.id, x: cx, y: cy, t: 0.7, max: 0.7 });
     run.shake = Math.max(run.shake, 3 + b.height * 2);
@@ -713,6 +716,7 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.hp > 0) { if (!quiet) run.events.push({ type: "hit" }); return; }
   run.events.push({ type: "boom", r: e.d.r });
   e.dead = true; run.kills++;
+  run.tally.kills++; if (e.elite) run.tally.elites++; if (e.d.boss) run.tally.bosses++;
   run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
   for (let i = 0; i < 7 + e.d.r; i++) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
@@ -849,7 +853,7 @@ export function rollOffers(run) {
   while (out.length < SHOP.offers && guard++ < 100) {
     let o;
     if (run.rand() < 0.5) {
-      const key = pick(run.rand, Object.keys(WEAPONS).map((k) => [k, 1]));
+      const key = pick(run.rand, (run.allowed || Object.keys(WEAPONS)).map((k) => [k, 1]));
       const r = run.rand();
       const tier = r < 0.07 * Math.max(0, w - 2) ? 2 : r < 0.14 * w ? 1 : 0;
       o = { kind: "weapon", key, tier, price: weaponPrice(key, tier, run.wave) };

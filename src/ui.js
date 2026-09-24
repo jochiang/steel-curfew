@@ -5,6 +5,7 @@ import {
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { mechFrames } from "./art.js";
+import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary } from "./meta.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -23,31 +24,39 @@ const HP_LABEL = { E: "Energy", B: "Ballistic", M: "Melee", U: "Universal" };
 const hpChips = (list) => list.map((h) => `<i class="hp-chip hp-${h}" title="${HP_LABEL[h]} hardpoint">${h}</i>`).join("");
 const statBar = (v, max) => `<span class="sbar"><i style="width:${Math.round(Math.min(1, v / max) * 100)}%"></i></span>`;
 
-export function renderTitle(opts, onDeploy) {
-  const el = $("#title");
+export function renderTitle(opts, onDeploy, onResume) {
+  const el = $("#title"), meta = getMeta(), car = meta.career, resume = savedRunSummary();
+  if (!isUnlocked("chassis", opts.chassis)) opts.chassis = "warden";
   const ch = CHASSIS[opts.chassis] || CHASSIS.warden;
-  if (!canMount(ch, WEAPONS[opts.start].family)) opts.start = Object.keys(WEAPONS).find((k) => canMount(ch, WEAPONS[k].family));
+  const usable = (k) => canMount(ch, WEAPONS[k].family) && isUnlocked("weapons", k);
+  if (!usable(opts.start)) opts.start = Object.keys(WEAPONS).find(usable);
   const frames = Object.entries(CHASSIS).map(([k, c]) => `
-    <button class="frame${opts.chassis === k ? " on" : ""}" data-chassis="${k}">
+    ${isUnlocked("chassis", k) ? `<button class="frame${opts.chassis === k ? " on" : ""}" data-chassis="${k}">` : `<button class="frame locked" disabled title="${esc(UNLOCKS.chassis[k].req)}">`}
       <canvas class="frame-art" data-art="${k}" width="23" height="22" aria-hidden="true"></canvas>
       <span class="frame-text"><span class="tag">${esc(c.cls)}</span><b>${esc(c.name)}</b>
         <span class="frame-stats">
           <span>HP</span>${statBar(c.hp, 90)}<span>SPD</span>${statBar(c.speed, 100)}<span>TON</span>${statBar(c.capacity, 85)}
         </span>
-        <span class="chips">${hpChips(c.hardpoints)}</span>
+        <span class="chips">${isUnlocked("chassis", k) ? hpChips(c.hardpoints) : `<span class="lock-req">🔒 ${esc(UNLOCKS.chassis[k].req)}</span>`}</span>
       </span>
     </button>`).join("");
-  const cards = Object.entries(WEAPONS).filter(([, w]) => canMount(ch, w.family)).map(([k, w]) => `
+  const cards = Object.entries(WEAPONS).filter(([, w]) => canMount(ch, w.family)).map(([k, w]) => isUnlocked("weapons", k) ? `
     <button class="pick fam-${w.family}${opts.start === k ? " on" : ""}" data-start="${k}">
       <span class="tag">${FAM[w.family]}</span>
       <b>${esc(w.name)}</b>
       <small>${esc(w.desc)}</small>
+    </button>` : `
+    <button class="pick locked" disabled>
+      <span class="tag">${FAM[w.family]}</span>
+      <b>${esc(w.name)}</b>
+      <small class="lock-req">🔒 ${esc(UNLOCKS.weapons[k].req)}</small>
     </button>`).join("");
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
       <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="23" height="22" aria-hidden="true"></canvas></div>
-      <p class="sub">prototype · 5 waves · procedural city</p>
+      <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${car.bestWave} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
+      ${resume ? `<button class="resume" data-resume>Resume run <span>wave ${resume.wave} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>
       <div class="frames">${frames}</div>
       <p class="pick-desc frame-desc"><b>${esc(ch.name)}:</b> ${esc(ch.blurb)} <em>${esc(ch.quirk)}.</em></p>
@@ -59,10 +68,12 @@ export function renderTitle(opts, onDeploy) {
         <button data-vent="all" class="${opts.ventMode === "all" ? "on" : ""}"><b>Full shutdown</b><small>every weapon goes offline while venting</small></button>
         <button data-vent="energy" class="${opts.ventMode === "energy" ? "on" : ""}"><b>Energy only</b><small>ballistic + melee keep firing</small></button>
       </div>
+      <label class="toggle"><input type="checkbox" data-unlockall ${meta.unlockAll ? "checked" : ""}> Unlock everything <em>(testing)</em></label>
       <button class="primary" data-deploy>Deploy</button>
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
       <div class="title-foot">${soundBtn()}</div>
     </div>`;
+  el.querySelector("[data-unlockall]").onchange = (e) => { setUnlockAll(e.target.checked); renderTitle(opts, onDeploy, onResume); };
   for (const cv of el.querySelectorAll(".frame-art")) {
     const f = mechFrames(cv.dataset.art, false)[0], g = cv.getContext("2d");
     g.drawImage(f, (cv.width - f.width) >> 1, cv.height - f.height);
@@ -72,6 +83,7 @@ export function renderTitle(opts, onDeploy) {
     if (!b) return;
     if ("sound" in b.dataset) return toggleSound(b);
     sfx("click");
+    if ("resume" in b.dataset) return onResume();
     if (b.dataset.chassis) opts.chassis = b.dataset.chassis;
     if (b.dataset.start) opts.start = b.dataset.start;
     if (b.dataset.vent) opts.ventMode = b.dataset.vent;
@@ -153,7 +165,8 @@ export function renderHangar(run, onDeploy) {
   el.innerHTML = `
     <div class="panel hangar-panel">
       <header>
-        <div><h2>Hangar</h2><p class="sub">Wave ${run.wave + 1} survived · next: wave ${next} of ${WAVES.length}</p></div>
+        <div><h2>Hangar</h2><p class="sub">Wave ${run.wave + 1} survived · next: wave ${next} of ${WAVES.length}</p>
+          ${(run.unlocks || []).filter((u) => !u.seen).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b>${u.kind === "weapons" ? " · now in the market" : ""}</p>`).join("")}</div>
         <div class="purse">◆ <b>${run.salvage}</b></div>
       </header>
       <div class="cols">
@@ -190,7 +203,7 @@ export function renderHangar(run, onDeploy) {
     const b = e.target.closest("button");
     if (!b || b.disabled) return;
     const d = b.dataset;
-    if ("deploy" in d) { selected = -1; sfx("click"); return onDeploy(); }
+    if ("deploy" in d) { selected = -1; sfx("click"); for (const u of run.unlocks || []) u.seen = true; return onDeploy(); }
     sfx(d.buy && buy(run, +d.buy) ? "buy" : "click");
     if (d.lock) run.shop.offers[+d.lock].locked = !run.shop.offers[+d.lock].locked;
     else if ("reroll" in d) reroll(run);
@@ -282,7 +295,9 @@ export function renderEnd(run, onAgain, onTitle) {
   el.innerHTML = `
     <div class="panel small-panel ${won ? "won" : "lost"}">
       <h2>${won ? "Arena cleared" : "Mech destroyed"}</h2>
-      <p class="sub">${won ? `All ${WAVES.length} waves survived` : `Fell on wave ${run.wave + 1}`} · ${run.kills} wrecks · ${Math.floor(run.time)}s</p>
+      <p class="sub">${won ? `All ${WAVES.length} waves survived` : `Fell on wave ${run.wave + 1}`} · ${run.kills} wrecks · pilot level ${run.level} · ${Math.floor(run.time)}s</p>
+      ${(run.unlocks || []).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b> <small>(${u.kind === "chassis" ? "frame" : "weapon"})</small></p>`).join("")}
+      <p class="sub career">Best wave ${getMeta().career.bestWave} · ${getMeta().career.runs} runs · ${getMeta().career.kills} wrecks total</p>
       <button class="primary" data-again>Redeploy</button>
       <button class="ghost" data-title>Change loadout</button>
     </div>`;

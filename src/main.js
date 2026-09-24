@@ -7,6 +7,7 @@ import { newRun, update, nextWave, startWave } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play } from "./audio.js";
+import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
 // URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
@@ -20,18 +21,21 @@ const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);
 
+if (params.has("unlockall")) unlockForSession();
+const saved = getMeta().settings;   // last choices, unless the URL says otherwise
 const opts = {
-  chassis: params.get("chassis") || "warden",
-  start: params.get("start") || "autocannon",
-  ventMode: params.get("vent") === "energy" ? "energy" : "all",
+  chassis: params.get("chassis") || saved.chassis || "warden",
+  start: params.get("start") || saved.start || "autocannon",
+  ventMode: params.get("vent") === "energy" ? "energy" : params.has("vent") ? "all" : saved.ventMode || "all",
   seed: params.has("seed") ? +params.get("seed") : null,
-  targeting: params.get("target") || "crowd",
+  targeting: params.get("target") || saved.targeting || "crowd",
   tod: params.get("tod"),
 };
 let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = "";
 
 function deploy() {
-  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod });
+  if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting });
+  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
   if (params.has("wave")) { run.wave = Math.max(0, Math.min(4, +params.get("wave") - 1)); startWave(run); }
   paused = false; acc = 0; shownPhase = "";
   input.reset();
@@ -39,9 +43,18 @@ function deploy() {
 }
 
 function toTitle() {
+  if (run && !run.ended && run.phase === "combat") { run.ended = true; recordEnd(run); }   // abandoned
   run = null; paused = false;
   hudEl.hidden = true;
-  renderTitle(opts, deploy);
+  renderTitle(opts, deploy, resumeRun);
+}
+
+function resumeRun() {
+  const r = loadRun(newRun);
+  if (!r) return toTitle();
+  run = r; paused = false; acc = 0; shownPhase = "";
+  input.reset();
+  syncScreens();
 }
 
 function syncScreens() {
@@ -55,13 +68,16 @@ function syncScreens() {
     else show(null);
   } else if (run.phase === "levelup") {
     input.reset();
+    recordProgress(run, run.wave + 2); saveRun(run);
     if (BOT) { setTimeout(() => { botLevelUp(run); syncScreens(); }, 300); }
     renderLevelUp(run, syncScreens);
   } else if (run.phase === "hangar") {
     input.reset();
+    recordProgress(run, run.wave + 2); saveRun(run);
     if (BOT) { botShop(run); setTimeout(() => { nextWave(run); syncScreens(); }, 400); }
     renderHangar(run, () => { opts.targeting = run.targeting; nextWave(run); syncScreens(); });
   } else {
+    if (!run.ended) { run.ended = true; recordEnd(run); }
     renderEnd(run, deploy, toTitle);
   }
 }
@@ -106,4 +122,5 @@ function frame(now) {
 window.__mech = { get run() { return run; }, get paused() { return paused; }, deploy, pause, resume, opts };
 
 if (params.has("go")) deploy(); else toTitle();
+window.__mech.resumeRun = resumeRun;
 requestAnimationFrame(frame);
