@@ -45,25 +45,33 @@ function enemySprite(d, flash) {
   });
 }
 
-// Greybox mech: 15x15, two leg frames. Weapons are drawn separately so they can aim.
+// Greybox mech: 19x19, idle + two walk frames. Shoulders are the weapon mounts; barrels are
+// drawn separately so they can aim. `hot` is the venting look (tinted hull, glowing grilles).
 function mechSprite(frame, hot) {
-  const body = hot ? "#e8a08a" : C.steel, dark = hot ? "#9c5a4a" : C.steelDark;
-  return sprite(15, 15, (x, y) => {
-    // legs
-    const lOff = frame === 1 ? 1 : 0, rOff = frame === 2 ? 1 : 0;
-    if (y >= 10 && y <= 13 - lOff && x >= 3 && x <= 5) return y === 13 - lOff ? C.shadow : dark;
-    if (y >= 10 && y <= 13 - rOff && x >= 9 && x <= 11) return y === 13 - rOff ? C.shadow : dark;
-    // torso
-    if (y >= 3 && y <= 10 && x >= 2 && x <= 12) {
-      if (x === 2 || x === 12 || y === 3 || y === 10) return C.shadow;
-      if (y >= 5 && y <= 6 && x >= 5 && x <= 9) return C.accent;    // cockpit
-      if (y === 4) return shade(body, 0.35);
-      return body;
-    }
-    // shoulder vents
-    if (y >= 2 && y <= 4 && (x === 1 || x === 13)) return dark;
-    return null;
-  });
+  const c = new OffscreenCanvas(19, 19), g = c.getContext("2d");
+  const B = hot ? "#e8a08a" : C.steel, D = hot ? "#9c5a4a" : C.steelDark, L = hot ? "#ffd6c7" : "#eef3f7";
+  const F = hot ? "#6e3f36" : "#5c6572", O = C.shadow;
+  const rect = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const box = (x, y, w, h, fill) => { rect(O, x, y, w, h); rect(fill, x + 1, y + 1, w - 2, h - 2); };
+  const liftL = frame === 1 ? 1 : 0, liftR = frame === 2 ? 1 : 0;
+  // legs and feet (behind the torso)
+  box(5, 10 - liftL, 4, 7, D); box(4, 15 - liftL, 5, 3, F);
+  box(10, 10 - liftR, 4, 7, D); box(10, 15 - liftR, 5, 3, F);
+  box(6, 9, 7, 3, D);                                   // hip
+  // torso
+  box(3, 1, 13, 10, B);
+  rect(L, 4, 2, 11, 1);                                 // top light
+  rect(D, 4, 9, 11, 1);                                 // underside
+  rect(O, 6, 3, 7, 4); rect(C.accent, 7, 4, 5, 2); rect("#ffb08f", 7, 4, 2, 1);   // cockpit
+  rect(D, 9, 7, 1, 2);                                  // panel seam
+  // shoulder mounts with grilles
+  for (const x of [0, 15]) {
+    box(x, 2, 4, 7, D);
+    rect(B, x + 1, 3, 2, 1);
+    rect(hot ? "#ff8a5c" : O, x + 1, 5, 2, 1);
+    rect(hot ? "#ffb36b" : O, x + 1, 7, 2, 1);
+  }
+  return c;
 }
 
 function circlePx(g, cx, cy, r, from = 0, to = Math.PI * 2) {
@@ -174,7 +182,7 @@ export function createRenderer(canvas) {
     g.fillStyle = "rgba(0,0,0,0.28)";
     for (const e of run.enemies) g.fillRect(X(e.x) - e.d.r + 1, Y(e.y) + e.d.r - 1, e.d.r * 2 - 1, 2);
     const p = run.player;
-    g.fillRect(X(p.x) - 6, Y(p.y) + 6, 13, 2);
+    g.fillRect(X(p.x) - 7, Y(p.y) + 9, 15, 2);
 
     const bodies = run.enemies.slice().sort((a, b) => a.y - b.y);
     let drewPlayer = false;
@@ -265,24 +273,25 @@ export function createRenderer(canvas) {
     if (p.iframes > 0 && Math.floor(p.iframes * 20) % 2) return;
     const frame = p.moving ? 1 + (Math.floor(run.time * 8) % 2) : 0;
     const x = X(p.x), y = Y(p.y);
-    g.drawImage((venting ? mechHot : mech)[frame], x - 7, y - 8);
-    // weapon barrels, fanned around the aim direction
-    const offline = weaponsOffline(run);
+    g.drawImage((venting ? mechHot : mech)[frame], x - 9, y - 8);
+    // barrels come off the shoulder mounts (left, right, alternating; later pairs stack)
+    const offline = weaponsOffline(run), a = p.aim, cx = Math.cos(a), cy = Math.sin(a);
     run.weapons.forEach((w, i) => {
       const def = WEAPONS[w.key];
-      const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
-      const a = p.aim, px = -Math.sin(a) * side * (3 + row * 2), py = Math.cos(a) * side * (3 + row * 2);
-      const len = def.family === "melee" ? 4 : def.family === "energy" ? 7 : 6;
-      g.fillStyle = offline || (venting && def.family === "energy") ? "#6b4b44"
-        : def.family === "energy" ? C.energy : def.family === "melee" ? "#f0e6dc" : C.ballistic;
-      linePx(g, x + px, y - 3 + py, x + px + Math.cos(a) * len, y - 3 + py + Math.sin(a) * len);
+      const sx = x + (i % 2 ? 7 : -7), sy = y - 3 + (Math.floor(i / 2) - 1) * 2;
+      const len = def.family === "melee" ? 5 : def.family === "energy" ? 8 : 7;
+      const dim = offline || (venting && def.family === "energy");
+      g.fillStyle = C.shadow;
+      linePx(g, sx, sy + 1, sx + cx * len, sy + 1 + cy * len);
+      g.fillStyle = dim ? "#6b4b44" : def.family === "energy" ? C.energy : def.family === "melee" ? "#f0e6dc" : C.ballistic;
+      linePx(g, sx, sy, sx + cx * len, sy + cy * len);
     });
   }
 
   function drawCapacitor(run, X, Y) {
     const cap = run.cap, p = run.player;
     if (!run.weapons.some((w) => WEAPONS[w.key].family === "energy")) return;
-    const x = X(p.x) - 8, y = Y(p.y) + 10, w = 17;
+    const x = X(p.x) - 9, y = Y(p.y) + 12, w = 19;
     g.fillStyle = "#0b0c0f"; g.fillRect(x - 1, y - 1, w + 2, 4);
     if (cap.vent > 0) {
       const k = cap.vent / cap.ventMax;

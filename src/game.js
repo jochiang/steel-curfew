@@ -1,6 +1,6 @@
 import {
   ARENA, CHASSIS, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
-  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+  PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, CROWD_NEED, HOLD_GIVEUP, loadSpeed, armorMul, waveHpMul, waveDmgMul,
 } from "./content.js";
 
 // ---------------------------------------------------------------- utils
@@ -39,15 +39,15 @@ function near(x, y, r, fn) {
 }
 
 // ---------------------------------------------------------------- run setup
-export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all" } = {}) {
+export function newRun({ seed = Date.now(), start = "autocannon", ventMode = "all", targeting = "crowd" } = {}) {
   const run = {
-    rand: mulberry32(seed), seed, ventMode,
+    rand: mulberry32(seed), seed, ventMode, targeting,
     chassis: CHASSIS.warden,
     phase: "combat", wave: 0, time: 0, waveTime: 0,
     salvage: 0, kills: 0,
     weapons: [], modules: [],
     player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
-    cap: { charge: 0, vent: 0, ventMax: 1 },
+    cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [],
     shake: 0, spawnT: 0, bossSpawned: false,
     shop: { offers: [], rerolls: 0 },
@@ -76,7 +76,7 @@ export function recompute(run) {
 export function startWave(run) {
   const p = run.player;
   Object.assign(p, { x: ARENA.w / 2, y: ARENA.h / 2, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
-  Object.assign(run.cap, { charge: 0, vent: 0 });
+  Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
   for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts"]) run[k].length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat";
@@ -234,9 +234,11 @@ export function update(run, dt, move) {
   } else {
     cap.charge = Math.min(1, cap.charge + dt / times.fill);
     const energy = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
-    if (cap.charge >= 1 && energy.some((w) => nearestEnemy(run, WEAPONS[w.key].range * (1 + s.rangeMul)))) {
-      for (const w of energy) discharge(run, w);
-      cap.vent = cap.ventMax = times.vent;
+    const plans = cap.charge >= 1 ? energy.map((w) => [w, plan(run, w)]) : [];
+    if (plans.length) cap.hold += dt;
+    if (plans.some(([, pl]) => pl.ready)) {
+      for (const [w, pl] of plans) discharge(run, w, pl.aim);
+      cap.vent = cap.ventMax = times.vent; cap.hold = 0;
       run.shake = Math.max(run.shake, 5);
       if (s.ventBurst) {
         near(p.x, p.y, 60, (e) => {
@@ -311,7 +313,42 @@ function nearestEnemy(run, range) {
   return best;
 }
 
-function discharge(run, w) {
+const isHeavy = (e) => (e.d.mass || 1) >= 3;
+const threat = (list) => list.reduce((t, e) => t + (isHeavy(e) ? 3 : 1), 0);
+
+/** Should this energy weapon fire now, and where? Follows run.targeting. */
+function plan(run, w) {
+  const def = WEAPONS[w.key], p = run.player, mode = run.targeting;
+  const range = def.range * (1 + run.stats.rangeMul);
+  const need = run.cap.hold >= HOLD_GIVEUP ? 1 : CROWD_NEED;
+  if (def.kind === "nova") {
+    const hits = run.enemies.filter((e) => !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < range + e.d.r);
+    const t = threat(hits);
+    return { ready: mode === "nearest" ? t > 0 : t >= need || (mode === "heavies" && hits.some(isHeavy)) };
+  }
+  // beam candidates: up to 40 nearest enemies in range; each defines a line through it
+  const cands = run.enemies
+    .filter((e) => !e.dead)
+    .map((e) => [e, Math.hypot(e.x - p.x, e.y - p.y)])
+    .filter(([, d]) => d < range)
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 40)
+    .map(([e]) => e);
+  if (!cands.length) return { ready: false, aim: p.aim };
+  const lineTo = (e) => Math.atan2(e.y - p.y, e.x - p.x);
+  if (mode === "nearest") return { ready: true, aim: lineTo(cands[0]) };
+  const heavy = mode === "heavies" ? cands.filter(isHeavy).sort((a, b) => b.hp - a.hp)[0] : null;
+  let best = null;
+  for (const c of cands) {
+    const a = lineTo(c), hits = beamHits(run, a, range, def.width);
+    if (heavy && !hits.includes(heavy)) continue;
+    const t = threat(hits);
+    if (!best || t > best.t) best = { a, t };
+  }
+  return { ready: !!heavy || best.t >= need, aim: best.a };
+}
+
+function discharge(run, w, aim) {
   const def = WEAPONS[w.key], p = run.player, s = run.stats, dmg = weaponDmg(run, w);
   const range = def.range * (1 + s.rangeMul);
   if (def.kind === "nova") {
@@ -322,18 +359,7 @@ function discharge(run, w) {
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
     return;
   }
-  // beam: pick the direction through the most enemies (candidates = up to 40 nearest in range)
-  const cands = run.enemies
-    .filter((e) => !e.dead)
-    .map((e) => [e, Math.hypot(e.x - p.x, e.y - p.y)])
-    .filter(([, d]) => d < range)
-    .sort((a, b) => a[1] - b[1])
-    .slice(0, 40);
-  let bestA = p.aim, bestN = -1;
-  for (const [c] of cands) {
-    const a = Math.atan2(c.y - p.y, c.x - p.x), n = beamHits(run, a, range, def.width).length;
-    if (n > bestN) { bestN = n; bestA = a; }
-  }
+  const bestA = aim ?? p.aim;
   for (const e of beamHits(run, bestA, range, def.width)) hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60);
   run.fx.push({ type: "beam", x1: p.x, y1: p.y, x2: p.x + Math.cos(bestA) * range, y2: p.y + Math.sin(bestA) * range, w: def.width, t: 0.3, max: 0.3 });
   p.aim = bestA;

@@ -1,4 +1,4 @@
-import { WEAPONS, MODULES, WAVES, TIER_NAMES, armorMul } from "./content.js";
+import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, armorMul } from "./content.js";
 import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes,
 } from "./game.js";
@@ -90,6 +90,11 @@ export function renderHangar(run, onDeploy) {
   for (const m of run.modules) counts[m] = (counts[m] || 0) + 1;
   const mods = Object.entries(counts).map(([k, n]) => `<span class="chip" title="${esc(MODULES[k].desc)}">${esc(MODULES[k].name)}${n > 1 ? ` ×${n}` : ""}</span>`).join("") || `<span class="none">none yet</span>`;
   const loadPct = Math.min(100, (run.load / run.chassis.capacity) * 100);
+  const targeting = times ? `
+          <h3>Capacitor targeting</h3>
+          <div class="seg seg3" role="radiogroup">${Object.entries(TARGETING).map(([k, t]) =>
+            `<button data-target="${k}" class="${run.targeting === k ? "on" : ""}" role="radio" aria-checked="${run.targeting === k}"><b>${t.name}</b></button>`).join("")}</div>
+          <p class="seg-desc">${esc(TARGETING[run.targeting].desc)}</p>` : "";
 
   el.innerHTML = `
     <div class="panel hangar-panel">
@@ -104,6 +109,7 @@ export function renderHangar(run, onDeploy) {
           <div class="offers">${offers}</div>
         </div>
         <div class="loadout">
+          ${targeting}
           <h3>Hardpoints <em>${run.weapons.length}/${run.chassis.slots}</em></h3>
           <div class="slots">${slots}</div>
           <h3>Modules</h3>
@@ -131,6 +137,7 @@ export function renderHangar(run, onDeploy) {
     if (d.buy) buy(run, +d.buy);
     else if (d.lock) run.shop.offers[+d.lock].locked = !run.shop.offers[+d.lock].locked;
     else if ("reroll" in d) reroll(run);
+    else if (d.target) run.targeting = d.target;
     else if (d.slot) selected = selected === +d.slot ? -1 : +d.slot;
     else if (d.combine) { combine(run, +d.combine); selected = -1; }
     else if (d.sell) { sell(run, +d.sell); selected = -1; }

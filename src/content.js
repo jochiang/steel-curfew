@@ -10,7 +10,7 @@ export const CHASSIS = {
     speed: 80,        // px/s before load
     capacity: 60,     // tonnes of weapons + modules
     slots: 6,
-    radius: 7,
+    radius: 8,
   },
 };
 
@@ -32,6 +32,15 @@ export const HEAT = {
   baseVent: 0.5,       // vent seconds = baseVent + ventPerHeat * total heat
   ventPerHeat: 0.015,
 };
+
+// How the capacitor picks its moment and its target. Heavies (mass >= 3) count as 3 enemies.
+export const TARGETING = {
+  crowd:   { name: "Crowd",   desc: "Holds the charge until a shot hits 3+ enemies (a heavy counts as 3)" },
+  heavies: { name: "Heavies", desc: "Saves the shot for the toughest enemy in range; otherwise acts like Crowd" },
+  nearest: { name: "Nearest", desc: "Fires at the closest enemy the moment the charge is full" },
+};
+export const CROWD_NEED = 3;     // threat needed before a Crowd/Heavies shot fires
+export const HOLD_GIVEUP = 2.5;  // seconds at full charge before it settles for any target
 
 export const WEAPONS = {
   autocannon: {

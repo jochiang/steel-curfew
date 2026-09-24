@@ -7,7 +7,7 @@ import { newRun, update, nextWave } from "./game.js";
 import { show, renderTitle, renderHangar, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop } from "./bot.js";
 
-// URL knobs for testing: ?start=lance&vent=energy&seed=1&go (skip title) &bot (autopilot) &ts=4 (time scale)
+// URL knobs for testing: ?start=lance&vent=energy&target=nearest&seed=1&go (skip title) &bot (autopilot) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
 const BOT = params.has("bot");
 const TIME_SCALE = Math.max(0.1, Math.min(16, +params.get("ts") || 1));
@@ -22,11 +22,12 @@ const opts = {
   start: params.get("start") || "autocannon",
   ventMode: params.get("vent") === "energy" ? "energy" : "all",
   seed: params.has("seed") ? +params.get("seed") : null,
+  targeting: params.get("target") || "crowd",
 };
 let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = "";
 
 function deploy() {
-  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), start: opts.start, ventMode: opts.ventMode });
+  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting });
   paused = false; acc = 0; shownPhase = "";
   input.reset();
   syncScreens();
@@ -50,7 +51,7 @@ function syncScreens() {
   } else if (run.phase === "hangar") {
     input.reset();
     if (BOT) { botShop(run); setTimeout(() => { nextWave(run); syncScreens(); }, 400); }
-    renderHangar(run, () => { nextWave(run); syncScreens(); });
+    renderHangar(run, () => { opts.targeting = run.targeting; nextWave(run); syncScreens(); });
   } else {
     renderEnd(run, deploy, toTitle);
   }
