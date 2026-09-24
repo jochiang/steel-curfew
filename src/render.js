@@ -14,6 +14,7 @@ import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./ci
 // bodies sorted by y -> projectiles and effects -> bloom (additive) -> vignette -> blit -> text/UI.
 
 const TARGET_SHORT = 200;
+const SHOT_H = 4, BOLT_H = 5;   // projectiles fly at barrel height: drawn this far above their ground position
 const C = {
   void: "#0c0d12", energy: "#8fe3ff", ballistic: "#ffd36b", danger: "#ff5b4a", melee: "#f5e6da",
 };
@@ -221,6 +222,9 @@ export function createRenderer(canvas) {
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
     g.drawImage(shadow(16), X(p.x) - 8, Y(p.y) + 8);
+    g.fillStyle = "rgba(5,6,10,0.4)";
+    for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
+    for (const s of run.shots) g.fillRect(X(s.x), Y(s.y), 1, 1);
 
     const items = [], shown = [];
     for (const b of city.buildings) {
@@ -233,6 +237,9 @@ export function createRenderer(canvas) {
     for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) items.push([pr.y + 4, 2, pr]);
     for (const e of run.enemies) items.push([e.y + e.d.r * 0.5, 3, e]);
     items.push([p.y + 8, 4, p]);
+    // projectiles sort in too, so a roof hides the ones flying behind it
+    for (const b of run.bolts) items.push([b.y, 5, b]);
+    for (const s of run.shots) items.push([s.y, 6, s]);
     items.sort((a, b) => a[0] - b[0]);
     for (const [, kind, o, f] of items) {
       if (kind === 0) {
@@ -251,7 +258,9 @@ export function createRenderer(canvas) {
         if (spr.height - sink > 0) g.drawImage(spr, 0, 0, spr.width, spr.height - sink, X(o.x * TILE) + jit, Y(o.y * TILE - Hw) + sink, spr.width, spr.height - sink);
       } else if (kind === 2) drawProp(o, X, Y);
       else if (kind === 3) drawEnemy(o, t, X, Y, false);
-      else drawPlayer(run, X, Y);
+      else if (kind === 4) drawPlayer(run, X, Y);
+      else if (kind === 5) drawBolt(o, t, X, Y);
+      else drawShot(o, X, Y);
     }
     // fallen buildings smoulder for a while
     for (const [id, until] of burning) {
@@ -310,19 +319,10 @@ export function createRenderer(canvas) {
       g.fillRect(X(q.x), Y(q.y), sz, sz);
     }
 
-    // projectiles
-    for (const s of run.shots) {
-      const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp;
-      g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 3), Y(s.y - uy * 3), 1, 1);
-      g.fillStyle = C.ballistic; g.fillRect(X(s.x - ux * 1.5), Y(s.y - uy * 1.5), 1, 1); g.fillRect(X(s.x), Y(s.y), 1, 1);
-      g.fillStyle = "#fff6d6"; g.fillRect(X(s.x + ux), Y(s.y + uy), 1, 1);
-    }
-    for (const b of run.bolts) {
-      const x = X(b.x), y = Y(b.y), pulse = Math.floor(t * 12 + b.x) % 2;
-      g.fillStyle = OUTLINE; g.fillRect(x - 2, y - 1, 5, 3); g.fillRect(x - 1, y - 2, 3, 5);
-      g.fillStyle = pulse ? "#ff7a4a" : "#ff9a5c"; g.fillRect(x - 1, y - 1, 3, 3);
-      g.fillStyle = "#ffe0c9"; g.fillRect(x, y, 1, 1);
-    }
+    // enemy bolts hidden under a roof still show faintly (you should never be hit by something unseen)
+    g.globalAlpha = 0.5;
+    for (const b of run.bolts) if (occluded(city, b.x, b.y)) drawBolt(b, t, X, Y);
+    g.globalAlpha = 1;
 
     // effects
     for (const f of run.fx) {
@@ -395,7 +395,7 @@ export function createRenderer(canvas) {
         g.drawImage(glowOf(r, "#0f2a36"), X(f.x) - r, Y(f.y) - r);
       }
     }
-    for (const b of run.bolts) g.drawImage(glowOf(4, "#5a2410"), X(b.x) - 4, Y(b.y) - 4);
+    for (const b of run.bolts) if (!occluded(city, b.x, b.y)) g.drawImage(glowOf(4, "#5a2410"), X(b.x) - 4, Y(b.y - BOLT_H) - 4);
     if (run.cap.charge >= 1 && run.cap.vent <= 0) {   // charged and holding: the mech hums
       const r = Math.floor(t * 8) % 2 ? 12 : 10;
       g.drawImage(glowOf(r, "#0f3346"), X(p.x) - r, Y(p.y) - 3 - r);
@@ -499,8 +499,8 @@ export function createRenderer(canvas) {
     lg.drawImage(gset[p.moving ? Math.floor(t * 9) % 4 : 0], X(p.x) - 9, Y(p.y) - 9);
     // salvage, bolts, shots
     for (const k of run.pickups) put(6, "#1d5a34", k.x, k.y);
-    for (const b of run.bolts) put(12, "#7a3010", b.x, b.y);
-    for (const s of run.shots) put(5, "#5a4818", s.x, s.y);
+    for (const b of run.bolts) { put(12, "#7a3010", b.x, b.y); lg.fillStyle = "#ffffff"; lg.fillRect(X(b.x) - 2, Y(b.y - BOLT_H) - 2, 5, 5); }
+    for (const s of run.shots) { put(5, "#5a4818", s.x, s.y - SHOT_H); lg.fillStyle = "#ffffff"; lg.fillRect(X(s.x) - 2, Y(s.y - SHOT_H) - 2, 5, 5); }
     // fire
     for (const [id] of burning) { const b = city.buildings[id]; put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE); }
     for (const [b] of shown) if (stageOf(b) === 2) put(12 + b.w * 3 + Math.random() * 4, "#5a260a", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
@@ -526,6 +526,19 @@ export function createRenderer(canvas) {
     if (ghost) g.globalAlpha = 0.5;
     g.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
     if (ghost) g.globalAlpha = 1;
+  }
+
+  function drawShot(s, X, Y) {
+    const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp, y = s.y - SHOT_H;
+    g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 3), Y(y - uy * 3), 1, 1);
+    g.fillStyle = C.ballistic; g.fillRect(X(s.x - ux * 1.5), Y(y - uy * 1.5), 1, 1); g.fillRect(X(s.x), Y(y), 1, 1);
+    g.fillStyle = "#fff6d6"; g.fillRect(X(s.x + ux), Y(y + uy), 1, 1);
+  }
+  function drawBolt(b, t, X, Y) {
+    const x = X(b.x), y = Y(b.y - BOLT_H), pulse = Math.floor(t * 12 + b.x) % 2;
+    g.fillStyle = OUTLINE; g.fillRect(x - 2, y - 1, 5, 3); g.fillRect(x - 1, y - 2, 3, 5);
+    g.fillStyle = pulse ? "#ff7a4a" : "#ff9a5c"; g.fillRect(x - 1, y - 1, 3, 3);
+    g.fillStyle = "#ffe0c9"; g.fillRect(x, y, 1, 1);
   }
 
   function drawProp(pr, X, Y) {
