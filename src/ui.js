@@ -6,6 +6,7 @@ import {
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { mechFrames } from "./art.js";
 import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary } from "./meta.js";
+import { toggle as toggleFullscreen, syncButtons as syncFs, isIOS, standalone, supported as fsSupported } from "./fullscreen.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -71,8 +72,10 @@ export function renderTitle(opts, onDeploy, onResume) {
       <label class="toggle"><input type="checkbox" data-unlockall ${meta.unlockAll ? "checked" : ""}> Unlock everything <em>(testing)</em></label>
       <button class="primary" data-deploy>Deploy</button>
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
-      <div class="title-foot">${soundBtn()}</div>
+      <div class="title-foot">${soundBtn()}<button class="ghost fs-btn" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button></div>
+      ${isIOS() && !fsSupported() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
     </div>`;
+  syncFs();
   el.querySelector("[data-unlockall]").onchange = (e) => { setUnlockAll(e.target.checked); renderTitle(opts, onDeploy, onResume); };
   for (const cv of el.querySelectorAll(".frame-art")) {
     const f = mechFrames(cv.dataset.art, false)[0], g = cv.getContext("2d");
@@ -82,6 +85,7 @@ export function renderTitle(opts, onDeploy, onResume) {
     const b = e.target.closest("button");
     if (!b) return;
     if ("sound" in b.dataset) return toggleSound(b);
+    if ("fs" in b.dataset) { toggleFullscreen().then(() => renderTitle(opts, onDeploy, onResume)); return; }
     sfx("click");
     if ("resume" in b.dataset) return onResume();
     if (b.dataset.chassis) opts.chassis = b.dataset.chassis;

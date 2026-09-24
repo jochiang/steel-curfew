@@ -7,6 +7,7 @@ import { newRun, update, nextWave, startWave } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play } from "./audio.js";
+import { toggle as toggleFullscreen, syncButtons as syncFs } from "./fullscreen.js";
 import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
 // URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
@@ -86,8 +87,11 @@ function pause() { if (run?.phase === "combat" && !paused) { paused = true; inpu
 function resume() { paused = false; last = performance.now(); syncScreens(); }
 
 hudEl.querySelector(".pause").addEventListener("click", pause);
+hudEl.querySelector(".fs").addEventListener("click", () => toggleFullscreen());
+syncFs();
 addEventListener("keydown", (e) => {
   if (e.code === "Escape" || e.code === "KeyP") paused ? resume() : pause();
+  if (e.code === "KeyF" && !e.repeat && !(e.target instanceof HTMLInputElement)) toggleFullscreen();
 });
 if (!BOT) {
   document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });

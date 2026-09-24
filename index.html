@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#101217" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>Mech Arena</title>
@@ -21,7 +25,10 @@
         <div class="wave"></div>
         <div class="timer"></div>
       </div>
-      <button class="pause" aria-label="Pause"><i></i><i></i></button>
+      <div class="hud-right">
+        <button class="hud-btn fs" data-fs aria-label="Fullscreen"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="enter" d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/><path class="exit" d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button>
+        <button class="hud-btn pause" aria-label="Pause"><i></i><i></i></button>
+      </div>
       <div class="boss" hidden><span></span><div class="bar"><i></i></div></div>
       <div class="banner" aria-live="polite"></div>
     </div>
