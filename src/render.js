@@ -255,6 +255,7 @@ export function createRenderer(canvas) {
       }
     }
     g.drawImage(floor, ox, oy);
+    drawSunShadows(city, d, ox, oy);
 
     // ---- daylight: a few soft floor glows (at night the light map does this job)
     if (!lit) {
@@ -312,6 +313,7 @@ export function createRenderer(canvas) {
     }
     for (const m of run.missiles) g.drawImage(shadow(3), X(m.x) - 1, Y(m.y));
     { const sw = run.chassis.radius * 2; g.drawImage(shadow(sw), X(p.x) - (sw >> 1), Y(p.y) + 8); }
+    for (const l of runningLights(run, t)) { g.fillStyle = l.col; g.fillRect(X(l.x), Y(l.y), 1, 1); }   // on the street round its feet; the legs hide the back ones
     g.fillStyle = "rgba(5,6,10,0.4)";
     for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
     for (const s of run.shots) g.fillRect(X(s.x), Y(s.y), 1, 1);
@@ -639,6 +641,52 @@ export function createRenderer(canvas) {
     lg.restore();
   }
 
+  // ---- sun shadows. The camera looks down from the south, so shadows go south-east at noon (short:
+  // the sun is high) and swing east as it sinks (long), then fade out as the lamps take over.
+  // Each building's footprint is swept along the shadow into one layer, rebuilt only when the sun
+  // moves a step or a building falls; drawn in one pass so overlapping shadows don't stack.
+  const shade = { c: null, g: null, key: "" };
+  const sunAt = (d) => { const u = Math.min(1, d / 0.7); return { a: 0.95 - 0.8 * u, len: 0.7 + 1.5 * u * u, alpha: 0.5 * (d < 0.55 ? 1 : Math.max(0, 1 - (d - 0.55) / 0.22)) }; };
+  function drawSunShadows(city, d, ox, oy) {
+    const sun = sunAt(d);
+    if (sun.alpha <= 0.01) return;
+    const qa = Math.round(sun.a * 30) / 30, ql = Math.round(sun.len * 12) / 12;
+    let dead = 0; for (const b of city.buildings) if (b.dead) dead++;
+    const key = qa + ":" + ql + ":" + dead + ":" + city.buildings.length;
+    if (shade.key !== key) {
+      if (!shade.c) { shade.c = new OffscreenCanvas(ARENA.w, ARENA.h); shade.g = shade.c.getContext("2d"); }
+      const sg = shade.g; sg.clearRect(0, 0, ARENA.w, ARENA.h); sg.fillStyle = "#0b0f1c";
+      const ca = Math.cos(qa), sa = Math.sin(qa);
+      for (const b of city.buildings) {
+        if (b.dead) continue;
+        const H = wallHeight(b) * ql, dx = ca * H, dy = sa * H, n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+        const x0 = b.x * TILE, y0 = b.y * TILE, w = b.w * TILE, h = b.h * TILE;
+        for (let i = 0; i <= n; i++) sg.fillRect(Math.round(x0 + (dx * i) / n), Math.round(y0 + (dy * i) / n), w, h);
+      }
+      shade.key = key;
+    }
+    g.globalAlpha = sun.alpha; g.drawImage(shade.c, ox, oy); g.globalAlpha = 1;
+  }
+
+  // ---- running lights: a ring of lamps on the street round the mech's feet that show its state.
+  // Amber chase = normal, all cyan = capacitor charged and holding, blinking red = venting.
+  const RING = 14;
+  function runningLights(run, t) {
+    const p = run.player, rx = run.chassis.radius + 10, ry = 7, cy = p.y + 8, out = [];
+    const venting = run.cap.vent > 0, held = !venting && run.cap.charge >= 1 && run.weapons.some((w) => WEAPONS[w.key].family === "energy");
+    const lead = Math.floor(t * 12) % RING, blink = Math.floor(t * 8) % 2;
+    for (let i = 0; i < RING; i++) {
+      const a = (i / RING) * Math.PI * 2, x = p.x + Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
+      if (venting) out.push({ x, y, col: blink ? "#ff5a3c" : "#5a1a10", glow: blink ? "#7a2010" : "#200806", bright: !!blink });
+      else if (held) out.push({ x, y, col: "#bff4ff", glow: "#2a86aa", bright: i % 2 === blink });
+      else {
+        const trail = (lead - i + RING) % RING, on = trail === 0, warm = trail <= 2;
+        out.push({ x, y, col: on ? "#fff1c8" : warm ? "#ffb347" : "#9a6a2c", glow: on ? "#b08030" : warm ? "#6a4818" : "#2e200c", bright: on });
+      }
+    }
+    return out;
+  }
+
   // The light map: ambient colour, plus every light source added on top. The scene is multiplied
   // by it, so white = full brightness. Self-lit pixels (windows, eyes, visor) are painted white.
   function drawLightMap(run, tod, X, Y, t, shown, inView) {
@@ -651,7 +699,9 @@ export function createRenderer(canvas) {
     // the mech: a halo, and a searchlight that tracks what it's aiming at
     const venting = run.cap.vent > 0;
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
-    cone(X(p.x), Y(p.y - 4), p.aim, 96, 0.42, "#b8b0a0");
+    cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
+    cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
+    for (const l of runningLights(run, t)) { put(l.bright ? 14 : 7, l.glow, l.x, l.y); lg.fillStyle = "#ffffff"; lg.fillRect(X(l.x), Y(l.y), 1, 1); }
     if (venting) put(14, "#7a3818", p.x, p.y - 4);
 
     // street lamps and parked cars with their lights on (each switches on at its own moment)
@@ -859,7 +909,7 @@ export function createRenderer(canvas) {
   function drawCapacitor(run, X, Y) {
     const cap = run.cap, p = run.player;
     if (!run.weapons.some((w) => WEAPONS[w.key].family === "energy")) return;
-    const x = X(p.x) - 9, y = Y(p.y) + 13, w = 19;
+    const x = X(p.x) - 9, y = Y(p.y) + 18, w = 19;   // below the running lights
     g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 1, w + 2, 4);
     if (cap.vent > 0) {
       const k = cap.vent / cap.ventMax;
