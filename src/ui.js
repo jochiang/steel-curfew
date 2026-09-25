@@ -44,7 +44,7 @@ export function renderTitle(opts, onDeploy, onResume) {
   if (!usable(opts.start)) opts.start = Object.keys(WEAPONS).find(usable);
   const frames = Object.entries(CHASSIS).map(([k, c]) => `
     ${isUnlocked("chassis", k) ? `<button class="frame${opts.chassis === k ? " on" : ""}" data-chassis="${k}">` : `<button class="frame locked" disabled title="${esc(UNLOCKS.chassis[k].req)}">`}
-      <canvas class="frame-art" data-art="${k}" width="23" height="22" aria-hidden="true"></canvas>
+      <canvas class="frame-art" data-art="${k}" width="25" height="25" aria-hidden="true"></canvas>
       <span class="frame-text"><span class="tag">${esc(c.cls)}</span><b>${esc(c.name)}</b>
         <span class="frame-stats">
           <span>HP</span>${statBar(c.hp, 90)}<span>SPD</span>${statBar(c.speed, 100)}<span>TON</span>${statBar(c.capacity, 85)}
@@ -66,7 +66,7 @@ export function renderTitle(opts, onDeploy, onResume) {
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
-      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="23" height="22" aria-hidden="true"></canvas></div>
+      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
       <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${car.bestWave} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
       ${resume ? `<button class="resume" data-resume>Resume run <span>wave ${resume.wave} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>

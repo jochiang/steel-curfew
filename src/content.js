@@ -9,31 +9,32 @@ export const BUILDING_DMG = { ballistic: 1, energy: 1.3, melee: 1.6, burst: 1 };
 // Hardpoint types: E energy, B ballistic, M melee, U universal (takes anything).
 export const HARDPOINT = { E: "energy", B: "ballistic", M: "melee", U: "universal" };
 
-// shoulder: x offset of the weapon mounts from centre; mountY: their height above the feet line.
+// mounts: where each hardpoint's weapon sits, [dx, dy] from the mech's centre, in hardpoint order
+// (hands first, then shoulders, then back).
 export const CHASSIS = {
   kestrel: {
     name: "Kestrel", cls: "Light", blurb: "Fast and fragile. Lives by staying out of reach.",
     hp: 45, armor: 0, speed: 100, capacity: 40, radius: 7,
     hardpoints: ["E", "E", "B", "U"], fx: { dodge: 0.25 }, quirk: "25% of hits glance off",
-    shoulder: 6, mountY: 12,
+    mounts: [[-5, -1], [5, -1], [-6, -7], [6, -7]],   // hands, then shoulder pods
   },
   warden: {
     name: "Warden", cls: "Medium", blurb: "The all-rounder. Two universal hardpoints take anything.",
     hp: 60, armor: 0, speed: 80, capacity: 60, radius: 8,
     hardpoints: ["B", "B", "E", "M", "U", "U"], fx: {}, quirk: "Two universal hardpoints",
-    shoulder: 7, mountY: 13,
+    mounts: [[-8, -2], [8, -2], [-7, -11], [7, -11], [-3, -14], [3, -14]],   // hands, shoulders, back
   },
   bulwark: {
     name: "Bulwark", cls: "Heavy", blurb: "Slow, armoured, and it doesn't walk around buildings.",
     hp: 90, armor: 3, speed: 62, capacity: 85, radius: 10,
     hardpoints: ["M", "M", "B", "B", "U"], fx: { ram: 1 }, quirk: "Walks through buildings and rams enemies",
-    shoulder: 9, mountY: 14,
+    mounts: [[-9, -1], [9, -1], [-8, -10], [8, -10], [0, -13]],
   },
   tempest: {
     name: "Tempest", cls: "Assault", blurb: "An energy platform built around its capacitor.",
     hp: 70, armor: 1, speed: 72, capacity: 75, radius: 9,
     hardpoints: ["E", "E", "E", "B", "U"], fx: { fillMul: -0.3 }, quirk: "Capacitor charges 30% faster",
-    shoulder: 8, mountY: 14,
+    mounts: [[-8, -2], [8, -2], [-7, -9], [7, -9], [0, -14]],
   },
 };
 export const RAM = { building: 90, enemy: 10, knock: 140, every: 0.45 };   // Bulwark: dps to buildings; hit per enemy contact

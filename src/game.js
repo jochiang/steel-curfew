@@ -129,11 +129,10 @@ export function assignMounts(run) {
   });
   return out;
 }
-/** Where weapon `wi` sits on the mech: alternating shoulders, later pairs stacked. */
+/** Where weapon `wi` sits on the mech (the chassis lists a point per hardpoint: hands, shoulders, back). */
 export function mountPoint(run, wi) {
-  const ch = run.chassis, p = run.player, hi = Math.max(0, run.mounts.indexOf(wi));
-  const rows = Math.ceil(ch.hardpoints.length / 2), row = Math.floor(hi / 2);
-  return { x: p.x + (hi % 2 ? 1 : -1) * ch.shoulder, y: p.y + 9 - ch.mountY + Math.round((row - (rows - 1) / 2) * 2) };
+  const p = run.player, hi = Math.max(0, run.mounts.indexOf(wi)), [dx, dy] = run.chassis.mounts[hi] || [0, -6];
+  return { x: p.x + dx, y: p.y + dy };
 }
 /** Weapons a chassis can start with (a hardpoint of its family, or a universal one) */
 export const canMount = (chassis, family) => chassis.hardpoints.some((h) => h === "U" || HARDPOINT[h] === family);
