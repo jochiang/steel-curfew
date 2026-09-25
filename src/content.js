@@ -214,3 +214,5 @@ export const PERKS = {
 export const PLAYER_IFRAMES = 0.4;
 export const PICKUP_RADIUS = 30;
 export const MAX_ENEMIES = 260;
+// Flyers are drawn this far above their ground position, and rounds aimed at them climb to it
+export const FLY_ALT = 9;

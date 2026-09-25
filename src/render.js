@@ -1,4 +1,4 @@
-import { ARENA, ENEMIES, WEAPONS } from "./content.js";
+import { ARENA, ENEMIES, WEAPONS, FLY_ALT } from "./content.js";
 import { weaponsOffline, mountPoint, darkness } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
@@ -312,7 +312,7 @@ export function createRenderer(canvas) {
     items.push([p.y + 8, 4, p]);
     // projectiles sort in too, so a roof hides the ones flying behind it
     for (const b of run.bolts) items.push([b.y, 5, b]);
-    for (const s of run.shots) items.push([s.y, 6, s]);
+    for (const s of run.shots) if (!s.air) items.push([s.y, 6, s]);   // rounds at flyers go over the roofs (drawn below)
     items.sort((a, b) => a[0] - b[0]);
     for (const [, kind, o, f] of items) {
       if (kind === 0) {
@@ -337,7 +337,8 @@ export function createRenderer(canvas) {
       else drawShot(o, X, Y);
     }
     // airborne: flyers, missiles and shells are above the rooftops
-    for (const e of run.enemies) if (e.d.flying) drawEnemy(e, t, X, Y, false, 9);
+    for (const e of run.enemies) if (e.d.flying) drawEnemy(e, t, X, Y, false, FLY_ALT);
+    for (const s of run.shots) if (s.air) drawShot(s, X, Y);
     for (const m of run.missiles) {
       const x = X(m.x), y = Y(m.y - m.z), a = Math.atan2(m.vy, m.vx);
       g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 1, 3, 3);
@@ -721,7 +722,7 @@ export function createRenderer(canvas) {
   }
 
   function drawShot(s, X, Y) {   // tracer: a bright head and a fading tail
-    const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp, y = s.y - (s.h ?? SHOT_H);
+    const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp - (s.slope || 0), y = s.y - (s.h ?? SHOT_H);   // a climbing round's tail trails below it
     if (s.big) {
       g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 2), Y(y - uy * 2), 1, 1);
       g.fillStyle = "#ffd36b"; g.fillRect(X(s.x) - 1, Y(y) - 1, 2, 2);

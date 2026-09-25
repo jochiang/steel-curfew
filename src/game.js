@@ -1,7 +1,7 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
-  waveDef, pastCurfew,
+  waveDef, pastCurfew, FLY_ALT,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -387,10 +387,12 @@ export function update(run, dt, move) {
       const m = mountPoint(run, run.weapons.indexOf(w)), ml = def.barrel + 1;
       // rounds start at the barrel tip: ground position under it, flying at the weapon's height
       const tipX = m.x + Math.cos(base) * ml, tipY = p.y + Math.sin(base) * ml, h = p.y - m.y;
+      // at a flyer the rounds climb to its altitude on the way (and so fly over cover): what you see is what hits
+      const air = !!t.d.flying, slope = air ? (FLY_ALT - h) / Math.max(12, Math.hypot(t.x - tipX, t.y - tipY)) : 0;
       for (let i = 0; i < def.pellets; i++) {
         const a = base + (rand() - 0.5) * def.spread * (flak ? 1 : 2);
         const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: tipX, y: tipY, h, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
+        run.shots.push({ x: tipX, y: tipY, h, air, slope, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
       }
       run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.1 : 0.06, max: flak ? 0.1 : 0.06 });
       run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
@@ -488,7 +490,11 @@ export function update(run, dt, move) {
   for (const sh of run.shots) {
     sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.life -= dt;
     if (sh.life <= 0) continue;
-    if (solidAt(city, sh.x, sh.y)) {   // cover: rounds chew into whatever they hit
+    if (sh.slope) {   // climbing (or dipping) to flyer altitude, then level
+      const nh = sh.h + sh.slope * Math.hypot(sh.vx, sh.vy) * dt;
+      if ((sh.slope > 0 && nh >= FLY_ALT) || (sh.slope < 0 && nh <= FLY_ALT)) { sh.h = FLY_ALT; sh.slope = 0; } else sh.h = nh;
+    }
+    if (!sh.air && solidAt(city, sh.x, sh.y)) {   // cover: rounds chew into whatever they hit
       damageAt(city, Math.floor(sh.y / TILE) * TCOLS + Math.floor(sh.x / TILE), sh.dmg * BUILDING_DMG.ballistic);
       sh.life = 0;
       for (let i = 0; i < 2; i++) {
@@ -500,6 +506,7 @@ export function update(run, dt, move) {
     let hit = null;
     near(sh.x, sh.y, 20, (e) => {
       if (hit || e.dead) return;
+      if (e.d.flying && !sh.air && Math.abs((sh.h ?? 4) - FLY_ALT) > 4) return;   // low rounds at ground targets pass under flyers, as drawn
       const dx = e.x - sh.x, dy = e.y - sh.y, r = e.d.r + 1.5;
       if (dx * dx + dy * dy < r * r) hit = e;
     });
@@ -588,7 +595,7 @@ function sightedEnemy(run, range) {
   }
   if (!cands.length) return null;
   cands.sort((a, b) => a[0] - b[0]);
-  for (let i = 0; i < Math.min(8, cands.length); i++) if (clearLine(run.city, p.x, p.y, cands[i][1].x, cands[i][1].y)) return cands[i][1];
+  for (let i = 0; i < Math.min(8, cands.length); i++) if (cands[i][1].d.flying || clearLine(run.city, p.x, p.y, cands[i][1].x, cands[i][1].y)) return cands[i][1];   // flyers are above the cover
   return cands[0][1];
 }
 
