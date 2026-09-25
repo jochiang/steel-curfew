@@ -1,12 +1,12 @@
 // ?sheet2: every chassis in every facing, torso over legs, for checking the directional art
 import { mechParts, MECH_KINDS } from "./art.js";
 export function drawSheet2(canvas) {
-  const Z = 7;
+  const q = new URLSearchParams(location.search), Z = +q.get("z") || 7, only = q.get("only");
   canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio;
   const g = canvas.getContext("2d"); g.imageSmoothingEnabled = false;
   g.fillStyle = "#1c1f26"; g.fillRect(0, 0, canvas.width, canvas.height);
   let y = 10;
-  for (const k of MECH_KINDS) {
+  for (const k of MECH_KINDS.filter((k) => !only || k === only)) {
     const P = mechParts(k, false), H = P.legY + P.legsH + 1;
     let x = 10;
     const views = [["front", P.torso.front, P.legs.front, false], ["back", P.torso.back, P.legs.front, false],
