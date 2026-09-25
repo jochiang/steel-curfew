@@ -66,7 +66,7 @@ export function renderTitle(opts, onDeploy, onResume) {
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
-      <div class="title-head"><h1>MECH<span>ARENA</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
+      <div class="title-head"><h1>STEEL<span>CURFEW</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
       <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${car.bestWave} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
       ${resume ? `<button class="resume" data-resume>Resume run <span>wave ${resume.wave} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>
