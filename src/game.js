@@ -66,6 +66,8 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     xp: 0, level: 1, pending: 0, perks: [], perkOffers: [], perkRerolls: 0,
     allowed,                                             // weapon keys the shop may offer (null = all)
     tally: { kills: 0, elites: 0, bosses: 0, buildings: 0 },   // for career progress
+    // balance metrics (cumulative; tools/balance.mjs reads them per wave)
+    m: { dealt: 0, hpSpawned: 0, hits: 0, glanced: 0, takenRaw: 0, taken: 0, earned: 0, spent: 0, bossSpawnT: null, bossKillT: null, bossType: null, bossHp: 0, bySrc: {} },
     stats: null, load: 0,
   };
   addWeapon(run, start, 0);
@@ -209,8 +211,11 @@ export function update(run, dt, move) {
   }
   for (const m of run.marks) {
     if ((m.t -= dt) > 0) continue;
+    if (ENEMIES[m.type].maxAlive && run.enemies.filter((e) => e.type === m.type).length >= ENEMIES[m.type].maxAlive) m.type = "drone";   // cap, swap for filler
     const d = ENEMIES[m.type], elite = !d.boss && !m.noElite && rand() < ELITE.chance(run.wave);
     const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1);
+    run.m.hpSpawned += hp;
+    if (d.boss) { run.m.bossSpawnT = run.time; run.m.bossType = m.type; run.m.bossHp = hp; }
     run.enemies.push({
       type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), dead: false, elite,
       dmgMul: elite ? ELITE.dmg : 1, spdMul: elite ? ELITE.speed : 1,
@@ -251,13 +256,13 @@ export function update(run, dt, move) {
     e.flash -= dt;
     if (d.lobEvery && (e.shootT -= dt) <= 0 && dist < 260) {   // mortar: lob a shell at where the mech is
       e.shootT = d.lobEvery;
-      lob(run, e.x, e.y - 6, p.x + (rand() - 0.5) * 16, p.y + (rand() - 0.5) * 16, d.shell, e.dmgMul);
+      lob(run, e.x, e.y - 6, p.x + (rand() - 0.5) * 16, p.y + (rand() - 0.5) * 16, d.shell, e.dmgMul, "mortar shell");
     }
     if (d.barrageEvery && (e.barT -= dt) <= 0) {   // siege walker: shells around the mech
       e.barT = d.barrageEvery;
       for (let i = 0; i < d.barrage; i++) {
         const a = rand() * Math.PI * 2, r = i === 0 ? 0 : 18 + rand() * 30;
-        lob(run, e.x, e.y - 12, p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, { ...d.shell, flight: d.shell.flight + i * 0.18 }, 1);
+        lob(run, e.x, e.y - 12, p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, { ...d.shell, flight: d.shell.flight + i * 0.18 }, 1, "siege shell");
       }
     }
     if (d.deployEvery && (e.depT -= dt) <= 0) {   // ...and drops sappers
@@ -269,7 +274,7 @@ export function update(run, dt, move) {
     }
     if (d.shootEvery && (e.shootT -= dt) <= 0) {
       e.shootT = d.shootEvery;
-      run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) * e.dmgMul });
+      run.bolts.push({ x: e.x, y: e.y, vx: (dx / dist) * d.boltSpeed, vy: (dy / dist) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) * e.dmgMul, src: e.type + " bolt" });
       run.events.push({ type: "enemyShot" });
     }
     if (d.burstEvery && (e.shootT -= dt) <= 0) {
@@ -277,7 +282,7 @@ export function update(run, dt, move) {
       const off = rand() * Math.PI;
       for (let i = 0; i < d.burstCount; i++) {
         const a = off + (i / d.burstCount) * Math.PI * 2;
-        run.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * d.boltSpeed, vy: Math.sin(a) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave) });
+        run.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * d.boltSpeed, vy: Math.sin(a) * d.boltSpeed, dmg: d.boltDmg * waveDmgMul(run.wave), src: e.type + " burst" });
       }
       run.fx.push({ type: "ring", x: e.x, y: e.y, r: d.r + 10, t: 0.3, max: 0.3, color: "#ff6b5a" });
       run.events.push({ type: "enemyShot" });
@@ -308,7 +313,7 @@ export function update(run, dt, move) {
         const d = Math.hypot(dx, dy) || 1;
         hitEnemy(run, e, RAM.enemy * (1 + 0.3 * run.wave), (-dx / d) * RAM.knock, (-dy / d) * RAM.knock);
       }
-      if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul);
+      if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul, "contact " + e.type);
     }
   }
   // buildings on fire burn down
@@ -450,7 +455,7 @@ export function update(run, dt, move) {
   for (const b of run.bolts) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     const dx = p.x - b.x, dy = p.y - b.y, r = run.chassis.radius + 2.5;
-    if (dx * dx + dy * dy < r * r) { hurtPlayer(run, b.dmg); b.dead = true; }
+    if (dx * dx + dy * dy < r * r) { hurtPlayer(run, b.dmg, b.src || "bolt"); b.dead = true; }
     if (solidAt(city, b.x, b.y)) b.dead = true;
   }
   run.bolts = run.bolts.filter((b) => !b.dead);
@@ -459,7 +464,7 @@ export function update(run, dt, move) {
   for (const sh of run.shells) {
     if ((sh.t += dt) < sh.dur) continue;
     sh.done = true;
-    blastAt(run, sh.tx, sh.ty, sh.r, { player: sh.dmg * waveDmgMul(run.wave) * sh.mul, building: sh.building });
+    blastAt(run, sh.tx, sh.ty, sh.r, { player: sh.dmg * waveDmgMul(run.wave) * sh.mul, building: sh.building, src: sh.src });
   }
   run.shells = run.shells.filter((sh) => !sh.done);
 
@@ -537,16 +542,16 @@ function buildingsInArc(run, a, arc, reach, dmg) {
 }
 
 /** Lob an artillery shell from (x0,y0) to land at (tx,ty) */
-function lob(run, x0, y0, tx, ty, shell, mul) {
+function lob(run, x0, y0, tx, ty, shell, mul, src) {
   if (solidAt(run.city, tx, ty)) { tx = run.player.x; ty = run.player.y; }
-  run.shells.push({ x0, y0, tx, ty, t: 0, dur: shell.flight, r: shell.radius, dmg: shell.dmg, building: shell.building, mul });
+  run.shells.push({ x0, y0, tx, ty, t: 0, dur: shell.flight, r: shell.radius, dmg: shell.dmg, building: shell.building, mul, src });
   run.events.push({ type: "lob", dur: shell.flight });
 }
 
 /** An explosion on the ground: hurts the mech if it's inside, chews buildings, flattens props */
-function blastAt(run, x, y, r, { player = 0, building = 0, enemies = 0 } = {}) {
+function blastAt(run, x, y, r, { player = 0, building = 0, enemies = 0, src = "blast" } = {}) {
   const p = run.player;
-  if (player && Math.hypot(p.x - x, p.y - y) < r + run.chassis.radius) hurtPlayer(run, player);
+  if (player && Math.hypot(p.x - x, p.y - y) < r + run.chassis.radius) hurtPlayer(run, player, src);
   if (enemies) near(x, y, r + 16, (e) => { if (!e.dead && Math.hypot(e.x - x, e.y - y) < r + e.d.r) hitEnemy(run, e, enemies, (e.x - x) * 4, (e.y - y) * 4); });
   if (building) buildingsAround(run, x, y, r, building);
   breakProps(run, x, y, r * 0.6);
@@ -560,7 +565,7 @@ function explode(run, e) {
   if (e.blown) return;
   e.blown = true; e.dead = true;
   const b = e.d.blast;
-  blastAt(run, e.x, e.y, b.radius, { player: b.dmg * waveDmgMul(run.wave) * e.dmgMul, building: b.building, enemies: b.enemyDmg * waveHpMul(run.wave) });
+  blastAt(run, e.x, e.y, b.radius, { player: b.dmg * waveDmgMul(run.wave) * e.dmgMul, building: b.building, enemies: b.enemyDmg * waveHpMul(run.wave), src: "sapper blast" });
 }
 
 /** Damage each building with a tile within r of a point (once per building) */
@@ -722,6 +727,7 @@ function beamHits(run, a, range, width) {
 
 function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.dead) return;
+  run.m.dealt += Math.min(dmg, Math.max(0, e.hp));
   e.hp -= dmg; e.flash = quiet ? Math.max(e.flash, 0.03) : 0.08;
   const m = e.d.mass || 1;
   e.kx += kx / m; e.ky += ky / m;
@@ -729,7 +735,7 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.hp > 0) { if (!quiet) run.events.push({ type: "hit" }); return; }
   run.events.push({ type: "boom", r: e.d.r });
   e.dead = true; run.kills++;
-  run.tally.kills++; if (e.elite) run.tally.elites++; if (e.d.boss) run.tally.bosses++;
+  run.tally.kills++; if (e.elite) run.tally.elites++; if (e.d.boss) { run.tally.bosses++; run.m.bossKillT = run.time; }
   run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
   for (let i = 0; i < 7 + e.d.r; i++) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
@@ -755,15 +761,19 @@ function gainXp(run, n) {
   }
 }
 
-function hurtPlayer(run, dmg) {
+function hurtPlayer(run, dmg, src = "other") {
   const p = run.player;
   if (p.iframes > 0) return;
+  run.m.hits++; run.m.takenRaw += dmg;
   if (run.stats.dodge && run.rand() < run.stats.dodge) {   // glanced off
+    run.m.glanced++;
     p.iframes = PLAYER_IFRAMES * 0.5;
     run.texts.push({ x: p.x, y: p.y - 12, n: "glance", t: 0.5, max: 0.5 });
     return;
   }
   p.hp -= dmg * armorMul(run.stats.armor);
+  run.m.taken += dmg * armorMul(run.stats.armor);
+  run.m.bySrc[src] = (run.m.bySrc[src] || 0) + dmg * armorMul(run.stats.armor);
   p.iframes = PLAYER_IFRAMES; p.hurt = 0.3;
   run.events.push({ type: "hurt" });
   run.shake = Math.max(run.shake, 3);
@@ -791,7 +801,7 @@ function tickPickups(run, dt) {
     const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
     if (d < run.stats.pickup || run.clearing > 0) k.pull = true;
     if (k.pull) { k.v = Math.min(400, k.v + 900 * dt); k.x += (dx / d) * k.v * dt; k.y += (dy / d) * k.v * dt; }
-    if (d < run.chassis.radius + 3) { run.salvage += k.n; k.got = true; run.events.push({ type: "pickup" }); }
+    if (d < run.chassis.radius + 3) { run.salvage += k.n; run.m.earned += k.n; k.got = true; run.events.push({ type: "pickup" }); }
   }
   run.pickups = run.pickups.filter((k) => !k.got);
 }
@@ -809,7 +819,8 @@ function clearWave(run) {
 }
 
 function endWave(run) {
-  run.salvage += run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
+  const leftover = run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
+  run.salvage += leftover; run.m.earned += leftover;
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
   run.clearing = 0;
   if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
@@ -839,7 +850,7 @@ export const perkRerollCost = (run) => XP.rerollBase + run.perkRerolls + Math.fl
 export function rerollPerks(run) {
   const c = perkRerollCost(run);
   if (run.salvage < c) return false;
-  run.salvage -= c; run.perkRerolls++;
+  run.salvage -= c; run.m.spent += c; run.perkRerolls++;
   rollPerks(run);
   return true;
 }
@@ -902,7 +913,7 @@ export function blocked(run, o) {
 export function buy(run, i) {
   const o = run.shop.offers[i];
   if (!o || blocked(run, o)) return false;
-  run.salvage -= o.price;
+  run.salvage -= o.price; run.m.spent += o.price;
   if (o.kind === "module") run.modules.push(o.key);
   else if (fits(run, WEAPONS[o.key].family)) addWeapon(run, o.key, o.tier);
   else run.weapons.find((w) => w.key === o.key && w.tier === o.tier).tier++;
@@ -914,7 +925,7 @@ export function buy(run, i) {
 export function reroll(run) {
   const c = rerollCost(run);
   if (run.salvage < c) return false;
-  run.salvage -= c; run.shop.rerolls++;
+  run.salvage -= c; run.m.spent += c; run.shop.rerolls++;
   run.shop.offers = run.shop.offers.filter((o) => o.locked && !o.sold);
   rollOffers(run);
   return true;
