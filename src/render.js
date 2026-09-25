@@ -496,6 +496,7 @@ export function createRenderer(canvas) {
         g.fillStyle = f.color; discPx(g, x, y, r * 0.6);
         g.fillStyle = "#ffffff"; g.fillRect(x - r, y, r * 2 + 1, 1); g.fillRect(x, y - r, 1, r * 2 + 1);
       } else if (f.type === "boom") {
+        if (!inView(f.x - 30, f.y - 30, f.x + 30, f.y + 30)) continue;
         const e = 1 - k, x = X(f.x), y = Y(f.y), r = f.r * (0.5 + e * 1.1);
         if (e < 0.18) { g.fillStyle = "#ffffff"; discPx(g, x, y, r); }
         else if (e < 0.45) {
@@ -684,8 +685,9 @@ export function createRenderer(canvas) {
     for (const m of run.missiles) put(8, "#7a4a18", m.x, m.y - m.z);
     for (const b of city.buildings) if (b.burn > 0 && !b.dead) put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
     for (const e of run.enemies) if (e.burn > 0) put(10, "#5a2408", e.x, e.y);
-    // weapon effects
+    // weapon effects (only what's on screen)
     for (const f of run.fx) {
+      if (f.x != null && !inView(f.x - 60, f.y - 60, f.x + 60, f.y + 60)) continue;
       const k = f.t / f.max;
       if (f.type === "flamecone") put(30, "#8a4412", f.x, f.y);
       else if (f.type === "rail") {

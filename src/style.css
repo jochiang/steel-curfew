@@ -244,6 +244,12 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .levelup-panel .reroll { margin-top: 14px; }
 .chip.rare { border-color: #8a7430; color: #f2dc8a; }
 
+#errbar {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 50;
+  padding: 8px 12px; background: rgba(60, 16, 16, 0.92); border: 1px solid #a33; color: #ffd9d0;
+  font: 12px/1.4 var(--sans); pointer-events: none;
+}
+
 /* ------------------------------------------------------------------ HUD */
 #hud {
   position: fixed; inset: 0 0 auto 0; z-index: 5; pointer-events: none;

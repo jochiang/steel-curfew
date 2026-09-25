@@ -102,8 +102,31 @@ if (!BOT) {
   addEventListener("blur", pause);
 }
 
+// One bad frame must never freeze the game: the next frame is always scheduled first, and an
+// error is reported on screen (once per message) while the loop carries on.
+const seenErrors = new Set();
+function reportError(err) {
+  const msg = String(err?.message || err);
+  console.error(err);
+  if (seenErrors.has(msg)) return;
+  seenErrors.add(msg);
+  const info = { msg, stack: String(err?.stack || "").split("\n").slice(0, 6).join("\n"), at: new Date().toISOString(),
+    wave: run ? run.wave + 1 : null, phase: run?.phase, chassis: run?.chassisKey, weapons: run?.weapons.map((w) => w.key) };
+  try { localStorage.setItem("mech.lastError", JSON.stringify(info)); } catch {}
+  let el = document.getElementById("errbar");
+  if (!el) { el = document.createElement("div"); el.id = "errbar"; document.body.appendChild(el); }
+  el.textContent = `Something went wrong (the game kept going): ${msg} · wave ${info.wave ?? "-"}`;
+  el.hidden = false;
+  setTimeout(() => { el.hidden = true; }, 12000);
+}
+
 function frame(now) {
-  const dt = Math.min(0.1, (now - last) / 1000);
+  requestAnimationFrame(frame);
+  try { step(now); } catch (err) { reportError(err); }
+}
+
+function step(now) {
+  const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   if (run && run.phase === "combat" && !paused && run.freeze > 0) run.freeze -= dt;
   else if (run && run.phase === "combat" && !paused) {
@@ -129,7 +152,6 @@ function frame(now) {
     renderer.draw(run, dt, input);
     if (run.phase === "combat") updateHud(run);
   }
-  requestAnimationFrame(frame);
 }
 
 // What the score should be doing right now
@@ -157,6 +179,7 @@ window.__mech = { get run() { return run; }, get paused() { return paused; }, de
 if (params.has("go")) deploy(); else toTitle();
 window.__mech.resumeRun = resumeRun;
 window.__mech.music = musicState;
+window.__mech.lastError = () => { try { return JSON.parse(localStorage.getItem("mech.lastError")); } catch { return null; } };
 window.__mech.renderer = renderer;
 addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
 requestAnimationFrame(frame);

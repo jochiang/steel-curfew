@@ -194,6 +194,14 @@ export function update(run, dt, move) {
   // --- wave over: everything left blows up, salvage flies home, then the hangar
   if (run.clearing > 0) {
     if (run.cap.vent > 0) run.cap.vent = Math.max(0, run.cap.vent - dt);
+    const elapsed = CLEAR_TIME - run.clearing;
+    for (const e of run.enemies) {
+      if (e.dead || e.doomAt == null || e.doomAt > elapsed) continue;
+      e.dead = true;
+      if (e.bigPop) { run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.45, max: 0.45 }); run.events.push({ type: "boom", r: e.d.r }); }
+      else run.parts.push({ x: e.x, y: e.y, vx: 0, vy: -12, t: 0.4, max: 0.4, color: "#4a3a3a", size: 3, steam: true });
+    }
+    run.enemies = run.enemies.filter((e) => !e.dead);
     tickPickups(run, dt);
     tickFx(run, dt);
     if ((run.clearing -= dt) <= 0) endWave(run);
@@ -872,11 +880,13 @@ function tickPickups(run, dt) {
 export const CLEAR_TIME = 1.4;
 function clearWave(run) {
   run.clearing = CLEAR_TIME;
-  for (const e of run.enemies) {
-    run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.3 + run.rand() * 0.4, max: 0.7 });
-  }
+  // the survivors power down where they stand and pop in a ripple outward from the mech,
+  // at most MAX_POPS explosions (a crowded last wave would otherwise detonate all at once)
+  const p = run.player, order = run.enemies.slice().sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
+  const MAX_POPS = 45;
+  order.forEach((e, i) => { e.doomAt = (i / Math.max(1, order.length)) * (CLEAR_TIME - 0.45); e.bigPop = i % Math.max(1, Math.ceil(order.length / MAX_POPS)) === 0; });
   if (run.enemies.length) run.events.push({ type: "boom", r: 10 });
-  for (const k of ["enemies", "bolts", "shots", "marks", "shells", "missiles"]) run[k].length = 0;
+  for (const k of ["bolts", "shots", "marks", "shells", "missiles"]) run[k].length = 0;
   run.shake = Math.max(run.shake, 4);
   run.events.push({ type: "waveClear" });
 }
