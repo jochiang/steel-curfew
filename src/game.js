@@ -61,7 +61,7 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [],
-    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0, overtime: false,
+    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
     endless: false, curfew: 0,   // stayed out past curfew (endless), and how many waves held there
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
@@ -214,10 +214,7 @@ export function update(run, dt, move) {
   updateField(run.heavyField, city, p.x, p.y);
 
   // --- spawning: telegraph marks first, enemies appear when they expire
-  // A boss wave only ends when the boss dies: past the timer it goes on (still spawning) until it does.
-  const bossUp = !!wave.boss && (!run.bossSpawned || run.marks.some((m) => ENEMIES[m.type].boss) || run.enemies.some((e) => e.d.boss));
-  run.overtime = bossUp && run.waveTime >= wave.duration;
-  if (run.waveTime < wave.duration - 1.5 || bossUp) {
+  if (run.waveTime < wave.duration - 1.5) {
     run.spawnT -= dt;
     if (run.spawnT <= 0) {
       run.spawnT = wave.interval;
@@ -562,7 +559,7 @@ export function update(run, dt, move) {
   tickFx(run, dt);
 
   if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; run.events.push({ type: "dead" }); return; }
-  if (wave.boss ? run.bossSpawned && !bossUp : run.waveTime >= wave.duration) clearWave(run);
+  if (run.waveTime >= wave.duration) clearWave(run);
 }
 
 function spawnPoint(run, minDist) {

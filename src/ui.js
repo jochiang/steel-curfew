@@ -308,7 +308,7 @@ export function renderPaused(run, onResume, onQuit) {
 
 export function renderEnd(run, onAgain, onTitle, onStay) {
   const el = $("#end"), won = run.phase === "won", car = getMeta().career;
-  const how = won ? `All ${WAVES.length} waves survived, the boss is down`
+  const how = won ? `All ${WAVES.length} waves survived${run.m.bossKillT != null ? ", the boss is down" : ""}`
     : run.endless ? `Held ${run.curfew} wave${run.curfew === 1 ? "" : "s"} past curfew` : `Fell on wave ${run.wave + 1}`;
   el.innerHTML = `
     <div class="panel small-panel ${won || run.endless ? "won" : "lost"}">
@@ -350,9 +350,9 @@ export function updateHud(run) {
   set("xpt", `LV ${run.level}${run.pending ? ` · +${run.pending}` : ""}`, (v) => (hud.xpText.textContent = v));
   const k = pastCurfew(run.wave);
   set("wave", k ? `CURFEW +${k}` : `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
-  const left = run.overtime ? "BOSS" : Math.max(0, Math.ceil(waveDef(run.wave).duration - run.waveTime));   // boss waves run on until it dies
-  set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v === "BOSS" || v <= 5); });
-  const banner = run.clearing > 0 ? (waveDef(run.wave).boss ? "Boss destroyed" : "Wave cleared")
+  const left = Math.max(0, Math.ceil(waveDef(run.wave).duration - run.waveTime));
+  set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
+  const banner = run.clearing > 0 ? (run.wave === WAVES.length - 1 && !run.endless ? "City held" : "Wave cleared")
     : run.waveTime < 1.6 ? `${waveName(run.wave)}${k || darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}` : "";
   set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
