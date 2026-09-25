@@ -14,15 +14,9 @@ const SEEDS = +(args.find((a) => /^\d+$/.test(a)) || 6);
 const jsonOut = args.includes("--json") ? args[args.indexOf("--json") + 1] : null;
 const STEP = 1 / 60;
 
-// --proposal: try tuning changes in memory, without touching the game files
+// --proposal: try tuning changes in memory, without touching the game files. Put the changes to
+// test here (e.g. ENEMIES.mortar.shell.dmg = 10), run with and without, compare.
 if (args.includes("--proposal")) {
-  Object.assign(ENEMIES.mortar, { lobEvery: 4.2, maxAlive: 3 });
-  Object.assign(ENEMIES.mortar.shell, { dmg: 10, radius: 18 });
-  Object.assign(ENEMIES.sapper.blast, { dmg: 13, radius: 22 });
-  ENEMIES.crusher.hp = 460; ENEMIES.siege.hp = 590;
-  PERKS.hull[2] = { maxHp: 10 }; PERKS.hull[3] = { maxHp: 22 };
-  MODULES.frame.fx = { maxHp: 20 };
-  SHOP.waveBonus = (w) => 10 + 5 * w;
   console.log("(proposal tuning applied in memory)");
 }
 

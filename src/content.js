@@ -118,7 +118,7 @@ export const WEAPONS = {
 // reloadMul, fillMul, ventMul, pickup, ventSpeed, ventBurst, isolatedLoops, dodge, ram
 export const MODULES = {
   plating:  { name: "Armor Plating",      weight: 8, price: 20, fx: { armor: 3, maxHp: 5 },       desc: "+3 armor, +5 max HP" },
-  frame:    { name: "Reinforced Frame",   weight: 6, price: 18, fx: { maxHp: 15 },                desc: "+15 max HP" },
+  frame:    { name: "Reinforced Frame",   weight: 6, price: 18, fx: { maxHp: 20 },                desc: "+20 max HP" },
   actuator: { name: "Actuator Upgrade",   weight: 2, price: 16, fx: { speedMul: 0.1 },            desc: "+10% speed" },
   nanites:  { name: "Repair Nanites",     weight: 1, price: 22, fx: { regen: 0.6 },               desc: "+0.6 HP/s regeneration" },
   sinks:    { name: "Heat Sinks",         weight: 4, price: 18, fx: { ventMul: -0.2 },            desc: "Vents 20% faster" },
@@ -141,14 +141,14 @@ export const ENEMIES = {
   brute:   { name: "Brute",       hp: 60, speed: 28, dmg: 12, r: 9,  salvage: 5, color: "#8a4f7d", mass: 3, crush: 45 },
   spitter: { name: "Spitter",     hp: 16, speed: 34, dmg: 5,  r: 5,  salvage: 2, color: "#5aa36b",
              keepAway: 95, shootEvery: 2.2, boltSpeed: 90, boltDmg: 6 },
-  mortar:  { name: "Mortar",      hp: 30, speed: 26, dmg: 6,  r: 6,  salvage: 3, color: "#a8927e",
-             keepAway: 150, lobEvery: 3.4, shell: { flight: 1.3, radius: 22, dmg: 14, building: 30 } },
+  mortar:  { name: "Mortar",      hp: 30, speed: 26, dmg: 6,  r: 6,  salvage: 3, color: "#a8927e", maxAlive: 3,
+             keepAway: 150, lobEvery: 4.2, shell: { flight: 1.3, radius: 18, dmg: 10, building: 30 } },
   sapper:  { name: "Sapper",      hp: 12, speed: 58, dmg: 0,  r: 5,  salvage: 2, color: "#e8c547",
-             blast: { radius: 26, dmg: 18, enemyDmg: 30, building: 120, fuse: 0.35 } },
+             blast: { radius: 22, dmg: 13, enemyDmg: 30, building: 120, fuse: 0.35 } },
   wasp:    { name: "Wasp",        hp: 8,  speed: 66, dmg: 5,  r: 4,  salvage: 1, color: "#6fbfb0", flying: true },
-  siege:   { name: "Siege Walker", hp: 900, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
-             keepAway: 120, barrageEvery: 5, barrage: 5, deployEvery: 8, deploy: 3, shell: { flight: 1.5, radius: 24, dmg: 16, building: 60 } },
-  crusher: { name: "Crusher",     hp: 700, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
+  siege:   { name: "Siege Walker", hp: 590, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
+             keepAway: 90, barrageEvery: 5, barrage: 5, deployEvery: 8, deploy: 3, shell: { flight: 1.5, radius: 24, dmg: 16, building: 60 } },
+  crusher: { name: "Crusher",     hp: 460, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
              burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
 };
 
@@ -173,14 +173,14 @@ export const SHOP = {
   rerollStep: 2,
   priceWaveMul: (w) => 1 + 0.12 * w,          // w = waves cleared - 1
   sellFrac: 0.5,
-  waveBonus: (w) => 8 + 4 * w,
+  waveBonus: (w) => 10 + 5 * w,
 };
 
 // Pilot level-ups: kills give XP; each level is one pick of four at the end of the wave.
 export const XP = { next: (level) => 10 + 6 * level, rareChance: (level) => Math.min(0.45, 0.12 + 0.03 * level), rerollBase: 2 };
 // [name, desc, fx common, fx rare]
 export const PERKS = {
-  hull:     ["Reinforced Hull", "max HP",             { maxHp: 8 },          { maxHp: 18 }],
+  hull:     ["Reinforced Hull", "max HP",             { maxHp: 10 },         { maxHp: 22 }],
   plating:  ["Composite Plating", "armor",            { armor: 1 },          { armor: 2 }],
   servos:   ["Servo Tuning", "speed",                 { speedMul: 0.05 },    { speedMul: 0.1 }],
   repair:   ["Field Repairs", "HP/s repair",          { regen: 0.3 },        { regen: 0.7 }],
