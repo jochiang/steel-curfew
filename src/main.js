@@ -31,7 +31,7 @@ const saved = getMeta().settings;   // last choices, unless the URL says otherwi
 const opts = {
   chassis: params.get("chassis") || saved.chassis || "warden",
   start: params.get("start") || saved.start || "autocannon",
-  ventMode: params.get("vent") === "energy" ? "energy" : params.has("vent") ? "all" : saved.ventMode || "all",
+  ventMode: params.get("vent") === "energy" ? "energy" : "all",   // full shutdown; ?vent=energy keeps the old test mode
   seed: params.has("seed") ? +params.get("seed") : null,
   targeting: params.get("target") || saved.targeting || "crowd",
   tod: params.get("tod"),
@@ -39,7 +39,7 @@ const opts = {
 let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = "";
 
 function deploy() {
-  if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting });
+  if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
   run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
   if (params.has("wave")) { run.wave = Math.max(0, Math.min(4, +params.get("wave") - 1)); startWave(run); }
   paused = false; acc = 0; shownPhase = "";

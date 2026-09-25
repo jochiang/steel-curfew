@@ -19,7 +19,7 @@ export const CHASSIS = {
     mounts: [[-5, -1], [5, -1], [-6, -7], [6, -7]],   // hands, then shoulder pods
   },
   warden: {
-    name: "Warden", cls: "Medium", blurb: "The all-rounder. Two universal hardpoints take anything.",
+    name: "Warden", cls: "Medium", blurb: "The all-rounder. Balanced armour, speed and loadout.",
     hp: 60, armor: 0, speed: 80, capacity: 60, radius: 8,
     hardpoints: ["B", "B", "E", "M", "U", "U"], fx: {}, quirk: "Two universal hardpoints",
     mounts: [[-8, -2], [8, -2], [-7, -11], [7, -11], [-3, -14], [3, -14]],   // hands, shoulders, back

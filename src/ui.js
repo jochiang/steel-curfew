@@ -75,11 +75,6 @@ export function renderTitle(opts, onDeploy, onResume) {
       <h3>Starting weapon</h3>
       <div class="picks">${cards}</div>
       <p class="pick-desc fam-${sel.family}"><b>${esc(sel.name)}:</b> ${esc(sel.desc)}</p>
-      <h3>Vent mode <em>(testing)</em></h3>
-      <div class="seg" role="radiogroup">
-        <button data-vent="all" class="${opts.ventMode === "all" ? "on" : ""}"><b>Full shutdown</b><small>every weapon goes offline while venting</small></button>
-        <button data-vent="energy" class="${opts.ventMode === "energy" ? "on" : ""}"><b>Energy only</b><small>ballistic + melee keep firing</small></button>
-      </div>
       <label class="toggle"><input type="checkbox" data-unlockall ${meta.unlockAll ? "checked" : ""}> Unlock everything <em>(testing)</em></label>
       <button class="primary" data-deploy>Deploy</button>
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
@@ -103,7 +98,6 @@ export function renderTitle(opts, onDeploy, onResume) {
     if ("resume" in b.dataset) return onResume();
     if (b.dataset.chassis) opts.chassis = b.dataset.chassis;
     if (b.dataset.start) opts.start = b.dataset.start;
-    if (b.dataset.vent) opts.ventMode = b.dataset.vent;
     if ("deploy" in b.dataset) return onDeploy();
     const scroll = el.scrollTop;
     renderTitle(opts, onDeploy);
