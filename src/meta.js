@@ -21,7 +21,7 @@ export const UNLOCKS = {
 };
 
 const fresh = () => ({
-  career: { runs: 0, wins: 0, kills: 0, elites: 0, bosses: 0, buildings: 0, bestWave: 0, time: 0 },
+  career: { runs: 0, wins: 0, kills: 0, elites: 0, bosses: 0, buildings: 0, bestWave: 0, bestCurfew: 0, time: 0 },
   unlocked: { chassis: [], weapons: [] },
   history: [],
   settings: {},
@@ -81,10 +81,17 @@ export function recordProgress(run, reached = run.wave + 1) {
 
 export function recordEnd(run) {
   const got = recordProgress(run);
-  meta.career.runs++;
-  if (run.phase === "won") meta.career.wins++;
-  meta.history.unshift({ at: Date.now(), chassis: run.chassisKey, wave: run.wave + 1, won: run.phase === "won", kills: run.kills, level: run.level, tod: run.tod });
-  meta.history.length = Math.min(meta.history.length, 12);
+  meta.career.bestCurfew = Math.max(meta.career.bestCurfew, run.curfew || 0);
+  const entry = { chassis: run.chassisKey, wave: run.wave + 1, won: run.phase === "won" || !!run.endless, kills: run.kills, level: run.level, tod: run.tod, curfew: run.curfew || 0 };
+  const prev = run.recordedAt && meta.history.find((h) => h.at === run.recordedAt);
+  if (run.recordedAt) { if (prev) Object.assign(prev, entry); }   // an endless run ending: the win was already counted
+  else {
+    run.recordedAt = Date.now();
+    meta.career.runs++;
+    if (run.phase === "won") meta.career.wins++;
+    meta.history.unshift({ at: run.recordedAt, ...entry });
+    meta.history.length = Math.min(meta.history.length, 12);
+  }
   persist();
   clearSavedRun();
   return got;
@@ -109,7 +116,7 @@ export function saveRun(run) {
 export function savedRunSummary() {
   const d = read(RUN_KEY);
   if (!d) return null;
-  return { wave: d.wave + 2, chassis: d.chassisKey, level: d.level, phase: d.phase };
+  return { wave: d.wave + 2, chassis: d.chassisKey, level: d.level, phase: d.phase, curfew: d.endless ? d.wave - 3 : 0 };
 }
 
 /** Rebuild a live run from the save; `makeRun` is newRun (to get a well-formed object to fill in). */

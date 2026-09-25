@@ -1,4 +1,6 @@
-import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul } from "./content.js";
+import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul, waveDef, pastCurfew } from "./content.js";
+
+const waveName = (w) => (pastCurfew(w) ? `Past curfew +${pastCurfew(w)}` : `Wave ${w + 1}`);
 import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits, darkness, timeLabel,
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
@@ -67,8 +69,8 @@ export function renderTitle(opts, onDeploy, onResume) {
   el.innerHTML = `
     <div class="panel title-panel">
       <div class="title-head"><h1>STEEL<span>CURFEW</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
-      <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${car.bestWave} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
-      ${resume ? `<button class="resume" data-resume>Resume run <span>wave ${resume.wave} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
+      <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` (+${car.bestCurfew} past curfew)` : ""} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
+      ${resume ? `<button class="resume" data-resume>Resume run <span>${resume.curfew ? `past curfew +${resume.curfew}` : `wave ${resume.wave}`} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>
       <div class="frames">${frames}</div>
       <p class="pick-desc frame-desc"><b>${esc(ch.name)}:</b> ${esc(ch.blurb)} <em>${esc(ch.quirk)}.</em></p>
@@ -176,7 +178,7 @@ export function renderHangar(run, onDeploy) {
   el.innerHTML = `
     <div class="panel hangar-panel">
       <header>
-        <div><h2>Hangar</h2><p class="sub">Wave ${run.wave + 1} survived · next: wave ${next} of ${WAVES.length}</p>
+        <div><h2>Hangar</h2><p class="sub">${waveName(run.wave)} survived · next: ${run.endless ? waveName(run.wave + 1) : `wave ${next} of ${WAVES.length}`}</p>
           ${(run.unlocks || []).filter((u) => !u.seen).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b>${u.kind === "weapons" ? " · now in the market" : ""}</p>`).join("")}</div>
         <div class="purse">◆ <b>${run.salvage}</b></div>
       </header>
@@ -207,7 +209,7 @@ export function renderHangar(run, onDeploy) {
           </dl>
         </div>
       </div>
-      <footer><button class="primary" data-deploy>Deploy · wave ${next}</button></footer>
+      <footer><button class="primary" data-deploy>Deploy · ${run.endless ? waveName(run.wave + 1).toLowerCase() : `wave ${next}`}</button></footer>
     </div>`;
 
   el.onclick = (e) => {
@@ -304,19 +306,24 @@ export function renderPaused(run, onResume, onQuit) {
   show("paused");
 }
 
-export function renderEnd(run, onAgain, onTitle) {
-  const el = $("#end"), won = run.phase === "won";
+export function renderEnd(run, onAgain, onTitle, onStay) {
+  const el = $("#end"), won = run.phase === "won", car = getMeta().career;
+  const how = won ? `All ${WAVES.length} waves survived, the boss is down`
+    : run.endless ? `Held ${run.curfew} wave${run.curfew === 1 ? "" : "s"} past curfew` : `Fell on wave ${run.wave + 1}`;
   el.innerHTML = `
-    <div class="panel small-panel ${won ? "won" : "lost"}">
-      <h2>${won ? "Arena cleared" : "Mech destroyed"}</h2>
-      <p class="sub">${won ? `All ${WAVES.length} waves survived` : `Fell on wave ${run.wave + 1}`} · ${run.kills} wrecks · pilot level ${run.level} · ${Math.floor(run.time)}s</p>
+    <div class="panel small-panel ${won || run.endless ? "won" : "lost"}">
+      <h2>${won ? "City held" : "Mech destroyed"}</h2>
+      <p class="sub">${how} · ${run.kills} wrecks · pilot level ${run.level} · ${Math.floor(run.time)}s</p>
       ${(run.unlocks || []).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b> <small>(${u.kind === "chassis" ? "frame" : "weapon"})</small></p>`).join("")}
-      <p class="sub career">Best wave ${getMeta().career.bestWave} · ${getMeta().career.runs} runs · ${getMeta().career.kills} wrecks total</p>
+      <p class="sub career">Best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` · best +${car.bestCurfew} past curfew` : ""} · ${car.runs} runs · ${car.kills} wrecks total</p>
+      ${won ? `<button class="primary stay" data-stay>Stay out past curfew<small>endless: harder every wave, a boss every third</small></button>
+      <button class="ghost" data-title>Extract</button>` : `
       <button class="primary" data-again>Redeploy</button>
-      <button class="ghost" data-title>Change loadout</button>
+      <button class="ghost" data-title>Change loadout</button>`}
     </div>`;
   el.onclick = (e) => {
     const b = e.target.closest("button");
+    if (b?.dataset.stay !== undefined) { for (const u of run.unlocks || []) u.seen = true; onStay(); }   // already announced here
     if (b?.dataset.again !== undefined) onAgain();
     if (b?.dataset.title !== undefined) onTitle();
   };
@@ -341,11 +348,12 @@ export function updateHud(run) {
   set("sal", run.salvage, (v) => (hud.salvage.textContent = v));
   set("xpw", Math.round((run.xp / XP.next(run.level)) * 100), (v) => (hud.xpBar.style.width = v + "%"));
   set("xpt", `LV ${run.level}${run.pending ? ` · +${run.pending}` : ""}`, (v) => (hud.xpText.textContent = v));
-  set("wave", `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
-  const left = Math.max(0, Math.ceil(WAVES[run.wave].duration - run.waveTime));
-  set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
-  const banner = run.clearing > 0 ? (run.wave >= WAVES.length - 1 ? "Arena cleared" : "Wave cleared")
-    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}${darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}` : "";
+  const k = pastCurfew(run.wave);
+  set("wave", k ? `CURFEW +${k}` : `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
+  const left = run.overtime ? "BOSS" : Math.max(0, Math.ceil(waveDef(run.wave).duration - run.waveTime));   // boss waves run on until it dies
+  set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v === "BOSS" || v <= 5); });
+  const banner = run.clearing > 0 ? (waveDef(run.wave).boss ? "Boss destroyed" : "Wave cleared")
+    : run.waveTime < 1.6 ? `${waveName(run.wave)}${k || darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}` : "";
   set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
   set("boss", !!boss, (v) => (hud.boss.hidden = !v));

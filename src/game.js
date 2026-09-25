@@ -1,6 +1,7 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
+  waveDef, pastCurfew,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -60,7 +61,8 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [],
-    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
+    shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0, overtime: false,
+    endless: false, curfew: 0,   // stayed out past curfew (endless), and how many waves held there
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
     shop: { offers: [], rerolls: 0 },
     xp: 0, level: 1, pending: 0, perks: [], perkOffers: [], perkRerolls: 0,
@@ -175,7 +177,7 @@ export const weaponsOffline = (run) =>
 export function update(run, dt, move) {
   if (run.phase !== "combat") return;
   if (run.events.length > 256) run.events.length = 0;
-  const s = run.stats, p = run.player, rand = run.rand, wave = WAVES[run.wave];
+  const s = run.stats, p = run.player, rand = run.rand, wave = waveDef(run.wave);
   run.time += dt; run.waveTime += dt;
 
   // --- player movement
@@ -212,7 +214,10 @@ export function update(run, dt, move) {
   updateField(run.heavyField, city, p.x, p.y);
 
   // --- spawning: telegraph marks first, enemies appear when they expire
-  if (run.waveTime < wave.duration - 1.5) {
+  // A boss wave only ends when the boss dies: past the timer it goes on (still spawning) until it does.
+  const bossUp = !!wave.boss && (!run.bossSpawned || run.marks.some((m) => ENEMIES[m.type].boss) || run.enemies.some((e) => e.d.boss));
+  run.overtime = bossUp && run.waveTime >= wave.duration;
+  if (run.waveTime < wave.duration - 1.5 || bossUp) {
     run.spawnT -= dt;
     if (run.spawnT <= 0) {
       run.spawnT = wave.interval;
@@ -228,8 +233,12 @@ export function update(run, dt, move) {
   }
   if (wave.boss && !run.bossSpawned && run.waveTime > 3) {
     run.bossSpawned = true;
-    const c = spawnPoint(run, 180);
-    run.marks.push({ ...c, t: 1.6, max: 1.6, type: Array.isArray(wave.boss) ? wave.boss[run.seed % wave.boss.length] : wave.boss });
+    const types = Array.isArray(wave.boss) ? wave.boss : [wave.boss];
+    const shift = Math.floor(pastCurfew(run.wave) / 3);   // past curfew the boss alternates with wave 5's
+    for (let i = 0; i < (wave.bossCount || 1); i++) {
+      const c = spawnPoint(run, 180);
+      run.marks.push({ ...c, t: 1.6 + i * 0.8, max: 1.6 + i * 0.8, type: types[(run.seed + shift + i) % types.length] });
+    }
     run.events.push({ type: "spawnBoss" });
     run.flashT = 0.6;   // lightning as it lands
   }
@@ -553,7 +562,7 @@ export function update(run, dt, move) {
   tickFx(run, dt);
 
   if (p.hp <= 0) { p.hp = 0; run.phase = "dead"; run.events.push({ type: "dead" }); return; }
-  if (run.waveTime >= wave.duration) clearWave(run);
+  if (wave.boss ? run.bossSpawned && !bossUp : run.waveTime >= wave.duration) clearWave(run);
 }
 
 function spawnPoint(run, minDist) {
@@ -896,7 +905,18 @@ function endWave(run) {
   run.salvage += leftover; run.m.earned += leftover;
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;
   run.clearing = 0;
-  if (run.wave >= WAVES.length - 1) { run.phase = "won"; return; }
+  if (run.endless) run.curfew = pastCurfew(run.wave);   // waves held past curfew
+  if (run.wave === WAVES.length - 1 && !run.endless) { run.phase = "won"; return; }
+  run.shop.rerolls = 0;
+  rollOffers(run);
+  if (run.pending > 0) { run.phase = "levelup"; run.perkRerolls = 0; rollPerks(run); }
+  else run.phase = "hangar";
+}
+
+/** After the wave-5 boss: stay out past curfew instead of extracting. The run carries on (endless). */
+export function stayOut(run) {
+  if (run.phase !== "won" || run.endless) return;
+  run.endless = true; run.curfew = 0;
   run.shop.rerolls = 0;
   rollOffers(run);
   if (run.pending > 0) { run.phase = "levelup"; run.perkRerolls = 0; rollPerks(run); }
@@ -904,7 +924,7 @@ function endWave(run) {
 }
 
 export function nextWave(run) {
-  if (run.phase !== "hangar" || run.wave >= WAVES.length - 1) return;   // a second deploy (double tap, bot timer) is a no-op
+  if (run.phase !== "hangar" || (run.wave >= WAVES.length - 1 && !run.endless)) return;   // a second deploy (double tap, bot timer) is a no-op
   run.wave++;
   startWave(run);
 }

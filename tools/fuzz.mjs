@@ -1,7 +1,7 @@
 // Fuzz the simulation: random frames, loadouts (any tier), modules, perks, erratic movement,
-// through the late waves. Reports the first error per distinct message with a stack.
+// through the late waves and past curfew (endless). Reports the first error per distinct message with a stack.
 //   node tools/fuzz.mjs [runs=300]
-import { newRun, update, nextWave, startWave, choosePerk, recompute, assignMounts } from "../src/game.js";
+import { newRun, update, nextWave, startWave, choosePerk, recompute, assignMounts, stayOut } from "../src/game.js";
 import { botMove } from "../src/bot.js";
 import { WEAPONS, MODULES, CHASSIS, PERKS } from "../src/content.js";
 import { mulberry32 } from "../src/rng.js";
@@ -19,9 +19,12 @@ for (let i = 0; i < RUNS; i++) {
     run.modules = Array.from({ length: Math.floor(r() * 8) }, () => pick(r, Object.keys(MODULES)));
     run.perks = Array.from({ length: Math.floor(r() * 10) }, () => { const k = pick(r, Object.keys(PERKS)); return { key: k, rare: r() < 0.3, fx: PERKS[k][r() < 0.3 ? 3 : 2] }; });
     recompute(run);
-    run.wave = 2 + Math.floor(r() * 3); startWave(run);
+    if (r() < 0.3) { run.wave = 5 + Math.floor(r() * 10); run.endless = true; }   // straight into endless, up to +10
+    else run.wave = 2 + Math.floor(r() * 3);
+    startWave(run);
     let t = 0;
-    while (run.phase !== "won" && run.phase !== "dead" && t < 60 * 200) {
+    while (run.phase !== "dead" && t < 60 * 400 && run.wave < 16) {
+      if (run.phase === "won") { if (r() < 0.7) { stayOut(run); continue; } break; }
       if (run.phase === "levelup") { choosePerk(run, 0); continue; }
       if (run.phase === "hangar") { nextWave(run); continue; }
       if (r() < 0.02) run.player.hp = Math.max(1, run.player.hp);   // let some runs go on

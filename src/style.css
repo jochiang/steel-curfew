@@ -90,6 +90,7 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
   font-family: var(--px); font-size: 18px; font-weight: 700;
 }
 .resume span { font-family: var(--sans); font-size: 12px; font-weight: 400; color: var(--muted); }
+.primary.stay small { display: block; font-family: var(--sans); font-size: 12px; font-weight: 400; opacity: 0.75; margin-top: 3px; }
 .frame.locked, .pick.locked { opacity: 0.55; cursor: not-allowed; }
 .frame.locked .frame-art { filter: grayscale(1) brightness(0.45); }
 .lock-req { font-size: 11px; color: var(--muted); font-family: var(--sans); }

@@ -3,7 +3,7 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, update, nextWave, startWave, darkness } from "./game.js";
+import { newRun, update, nextWave, startWave, darkness, stayOut } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play } from "./audio.js";
@@ -12,7 +12,7 @@ import { updateMusic, stinger, musicState } from "./music.js";
 import { WAVES } from "./content.js";
 import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
-// URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
+// URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &endless (bot stays out) &ts=4 (time scale)
 const params = new URLSearchParams(location.search);
 const BOT = params.has("bot");
 const TIME_SCALE = Math.max(0.1, Math.min(16, +params.get("ts") || 1));
@@ -41,7 +41,7 @@ let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = 
 function deploy() {
   if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
   run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
-  if (params.has("wave")) { run.wave = Math.max(0, Math.min(4, +params.get("wave") - 1)); startWave(run); }
+  if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=6 is past curfew +1
   paused = false; acc = 0; shownPhase = "";
   input.reset();
   syncScreens();
@@ -83,8 +83,15 @@ function syncScreens() {
     renderHangar(run, () => { opts.targeting = run.targeting; nextWave(run); syncScreens(); });
   } else {
     if (!run.ended) { run.ended = true; recordEnd(run); }
-    renderEnd(run, deploy, toTitle);
+    if (BOT && run.phase === "won" && params.has("endless")) setTimeout(stay, 400);
+    renderEnd(run, deploy, toTitle, stay);
   }
+}
+
+function stay() {   // after the wave-5 boss: carry on past curfew instead of extracting
+  if (run?.phase !== "won") return;
+  stayOut(run); run.ended = false;
+  syncScreens();
 }
 
 function pause() { if (run?.phase === "combat" && !paused) { paused = true; input.reset(); syncScreens(); } }
@@ -159,7 +166,7 @@ function step(now) {
   updateMusic(musicContext(), dt);
   if (run) {
     for (const e of run.events) {   // musical punctuation for the big moments
-      if (e.type === "waveClear") stinger(run.wave >= WAVES.length - 1 ? "won" : "clear");
+      if (e.type === "waveClear") stinger(run.wave === WAVES.length - 1 && !run.endless ? "won" : "clear");
       else if (e.type === "spawnBoss") stinger("boss");
       else if (e.type === "dead") stinger("dead");
     }

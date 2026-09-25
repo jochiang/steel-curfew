@@ -161,9 +161,23 @@ export const WAVES = [
   { duration: 35, interval: 1.4, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["wasp", 1]] },
   { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege"] },
 ];
-export const waveHpMul = (w) => 1 + 0.25 * w;   // w is 0-based
+// Past curfew (endless, optional after the wave-5 boss): each wave past the table is the last one,
+// with enemy HP x1.2 and spawns x1.1 compounding, and a boss every 3rd wave (both bosses from +9).
+export const CURFEW = { hp: 1.2, spawns: 1.1, bossEvery: 3, twoBossesFrom: 9 };
+export const pastCurfew = (w) => Math.max(0, w - WAVES.length + 1);   // 0 during the normal waves, then 1, 2, ...
+export function waveDef(w) {
+  const k = pastCurfew(w);
+  if (!k) return WAVES[w];
+  const last = WAVES[WAVES.length - 1], bossWave = k % CURFEW.bossEvery === 0;
+  return {
+    ...last, interval: last.interval / CURFEW.spawns ** k,
+    boss: bossWave ? last.boss : null,   // alternates with the wave-5 boss (see the spawn in game.js)
+    bossCount: bossWave && k >= CURFEW.twoBossesFrom ? 2 : 1,
+  };
+}
+export const waveHpMul = (w) => (pastCurfew(w) ? (1 + 0.25 * (WAVES.length - 1)) * CURFEW.hp ** pastCurfew(w) : 1 + 0.25 * w);   // w is 0-based
 // Elites: tougher, gold-outlined versions of ordinary enemies (not bosses), from wave 2
-export const ELITE = { chance: (w) => (w >= 1 ? 0.02 + 0.012 * w : 0), hp: 3, dmg: 1.5, salvage: 4, speed: 0.9 };
+export const ELITE = { chance: (w) => (w >= 1 ? Math.min(0.25, 0.02 + 0.012 * w) : 0), hp: 3, dmg: 1.5, salvage: 4, speed: 0.9 };
 // spawn groups grow through a wave: +1 enemy per GROUP_GROW seconds, at most GROUP_GROW_MAX
 export const GROUP_GROW = 15, GROUP_GROW_MAX = 2;
 export const waveDmgMul = (w) => 1 + 0.15 * w;
