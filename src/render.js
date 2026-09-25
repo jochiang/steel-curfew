@@ -181,8 +181,10 @@ export function createRenderer(canvas) {
     return bsprites.get(k);
   }
 
-  // Ambient light by darkness d (0 day .. 1 night): the colour the scene is multiplied by.
-  const AMBIENT = [[0, [255, 255, 255]], [0.3, [240, 216, 188]], [0.52, [196, 146, 132]], [0.76, [92, 90, 132]], [1, [28, 36, 57]]];
+  // Ambient light by darkness d (0 day .. 1 night): the colour the scene is multiplied by. Night has a
+  // floor (~1/3 of day; user: "the game gets real abstract real fast" at ~1/8): lamps and neon still
+  // pop, but the street, the mech and every enemy stay readable all the way past curfew.
+  const AMBIENT = [[0, [255, 255, 255]], [0.3, [240, 216, 188]], [0.52, [204, 160, 146]], [0.76, [128, 122, 158]], [1, [80, 88, 122]]];
   function ambientAt(d) {
     let i = 0;
     while (i < AMBIENT.length - 2 && d > AMBIENT[i + 1][0]) i++;
@@ -233,7 +235,7 @@ export function createRenderer(canvas) {
     const X = (v) => Math.round(v + ox), Y = (v) => Math.round(v + oy);
     const t = run.time, p = run.player, city = run.city, d = darkness(run);
     const lit = d > 0.06, night = d > 0.5;   // lit: use the light map; night: windows and signs are on
-    const tod = { ambient: ambientAt(d), vig: 1 + Math.round(d), d };
+    const tod = { ambient: ambientAt(d), vig: 1, d };   // one vignette pass: a second one hid enemies coming in from the edges
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
     g.globalCompositeOperation = "source-over"; g.globalAlpha = 1; g.imageSmoothingEnabled = false;
