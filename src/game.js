@@ -278,7 +278,7 @@ export function update(run, dt, move) {
     if (e.burn > 0) {   // on fire: damage ticks, and a few flames
       e.burn -= dt; e.burnAcc = (e.burnAcc || 0) + dt;
       if (e.burnAcc >= 0.3) { e.burnAcc = 0; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); if (e.dead) continue; }
-      if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1 });
+      if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1, fire: true });
     }
     const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul;
     e.crushing = false;
@@ -793,7 +793,7 @@ function discharge(run, w, aim) {
     const rand = run.rand;
     for (let i = 0; i < 24; i++) {   // sparks shed along the slug's path
       const f = rand(), a = bestA + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 20 + rand() * 50;
-      run.parts.push({ x: p.x + (ex - p.x) * f, y: p.y + (ey - p.y) * f, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.4, max: 0.4, color: rand() < 0.5 ? "#e6d4ff" : "#a67cff", size: 1 });
+      run.parts.push({ x: p.x + (ex - p.x) * f, y: p.y + (ey - p.y) * f, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.4, max: 0.4, color: rand() < 0.5 ? "#e6d4ff" : "#a67cff", size: 1, spark: true, energy: true });
     }
   }
   p.aim = bestA;
@@ -825,7 +825,7 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   run.fx.push({ type: "boom", x: e.x, y: e.y, r: e.d.r, t: 0.4 + e.d.r * 0.02, max: 0.4 + e.d.r * 0.02 });
   for (let i = 0; i < 7 + e.d.r; i++) {
     const a = run.rand() * Math.PI * 2, sp = 30 + run.rand() * 70;
-    run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0) });
+    run.parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.4 + run.rand() * 0.3, max: 0.7, color: e.d.color, size: 1 + (run.rand() * 2 | 0), shrapnel: true });
   }
   gainXp(run, e.d.salvage * (e.elite ? ELITE.salvage : 1));
   let n = e.d.salvage * (e.elite ? ELITE.salvage : 1);

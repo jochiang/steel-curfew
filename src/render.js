@@ -536,10 +536,14 @@ export function createRenderer(canvas) {
         }
       }
     }
+    // sparks and flames start white-hot and cool to their colour; kill shrapnel flashes hot, then shows its colour
     for (const q of run.parts) {
       if (q.steam) continue;
-      g.globalAlpha = Math.min(1, (q.t / q.max) * 2);
-      g.fillStyle = q.color; g.fillRect(X(q.x), Y(q.y), q.size, q.size);
+      const k = q.t / q.max;
+      g.globalAlpha = Math.min(1, k * 2);
+      g.fillStyle = (q.spark || q.fire) && k > 0.62 ? (q.energy ? "#f4ecff" : "#fffbe8") : q.shrapnel && k > 0.8 ? "#ffd9a0" : q.color;
+      g.fillRect(X(q.x), Y(q.y), q.size, q.size);
+      if ((q.spark || q.fire) && k > 0.35 && q.size < 2) { g.globalAlpha *= 0.5; g.fillRect(X(q.x) - 1, Y(q.y), 3, 1); g.fillRect(X(q.x), Y(q.y) - 1, 1, 3); }   // a soft cross while hot
     }
     g.globalAlpha = 1;
 
@@ -548,6 +552,12 @@ export function createRenderer(canvas) {
     // ---- bloom
     g.globalCompositeOperation = "lighter";
     const bloom = 1 + 0.6 * d;
+    let halos = 0;   // hot particles glow (capped: a big fire can throw a few hundred)
+    for (const q of run.parts) {
+      if (!(q.spark || q.fire) || q.t / q.max < 0.3 || ++halos > 220) continue;
+      const r = q.fire ? 4 : 3;
+      g.drawImage(glowOf(r, q.energy ? "#3a2466" : q.fire ? "#5a260a" : "#4a3a14"), X(q.x) - r, Y(q.y) - r);
+    }
     for (const f of run.fx) {
       const k = f.t / f.max;
       if (f.type === "beam") {
@@ -703,6 +713,20 @@ export function createRenderer(canvas) {
     // fire
     for (const [id] of burning) { const b = city.buildings[id]; put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE); }
     for (const [b] of shown) if (stageOf(b) === 2) put(12 + b.w * 3 + Math.random() * 4, "#5a260a", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
+    // hot particles light the street: binned into 12px cells, so a shower of sparks is a handful of lights
+    const bins = new Map();
+    const heat = (x, y, w, kind) => {
+      const key = ((x / 12) | 0) + ((y / 12) | 0) * 1024, b = bins.get(key);
+      if (b) { b.w += w; b.x += x * w; b.y += y * w; b[kind] += w; }
+      else bins.set(key, { w, x: x * w, y: y * w, fire: kind === "fire" ? w : 0, spark: kind === "spark" ? w : 0, energy: kind === "energy" ? w : 0 });
+    };
+    for (const q of run.parts) if (q.spark || q.fire || q.shrapnel) heat(q.x, q.y, (q.t / q.max) * (q.fire ? 1 : q.shrapnel ? 0.35 : 0.6), q.energy ? "energy" : q.fire || q.shrapnel ? "fire" : "spark");
+    for (const q of flames) heat(q.x, q.y, (q.t / q.max) * 0.7, "fire");
+    for (const b of bins.values()) {
+      const x = b.x / b.w, y = b.y / b.w;
+      if (b.w < 0.15 || !inView(x - 40, y - 40, x + 40, y + 40)) continue;
+      put(Math.min(44, 7 + 8 * Math.sqrt(b.w)), b.energy > b.fire && b.energy > b.spark ? "#5a3a9a" : b.fire >= b.spark ? "#9a4a16" : "#8a7430", x, y);
+    }
     // shells, missiles, fire
     for (const sh of run.shells) { const k = sh.t / sh.dur; put(8, "#7a3a10", sh.x0 + (sh.tx - sh.x0) * k, sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46); put(sh.r + 4, "#3a0c08", sh.tx, sh.ty); }
     for (const m of run.missiles) put(8, "#7a4a18", m.x, m.y - m.z);
