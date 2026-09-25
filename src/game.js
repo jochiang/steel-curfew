@@ -904,6 +904,7 @@ function endWave(run) {
 }
 
 export function nextWave(run) {
+  if (run.phase !== "hangar" || run.wave >= WAVES.length - 1) return;   // a second deploy (double tap, bot timer) is a no-op
   run.wave++;
   startWave(run);
 }

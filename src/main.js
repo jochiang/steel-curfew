@@ -120,10 +120,25 @@ function reportError(err) {
   setTimeout(() => { el.hidden = true; }, 12000);
 }
 
+let lastFrameAt = performance.now(), simSeen = { t: -1, at: 0 };
 function frame(now) {
   requestAnimationFrame(frame);
+  lastFrameAt = performance.now();
   try { step(now); } catch (err) { reportError(err); }
 }
+
+// Watchdog for freezes that throw nothing: the browser stops giving us frames, or frames arrive but
+// the simulation doesn't advance, or the canvas loses its graphics context. Runs on a timer (like the
+// music), so it still fires when the frame loop doesn't; whatever it sees lands in mech.lastError.
+setInterval(() => {
+  if (!run || run.phase !== "combat" || paused || document.visibilityState !== "visible") { simSeen.t = -1; return; }
+  const now = performance.now();
+  if (now - lastFrameAt > 2500) reportError(new Error(`no frames for ${((now - lastFrameAt) / 1000).toFixed(0)}s`));
+  if (run.waveTime !== simSeen.t) simSeen = { t: run.waveTime, at: now };
+  else if (now - simSeen.at > 3000) reportError(new Error(`simulation stuck at ${run.waveTime.toFixed(1)}s (freeze ${run.freeze}, player ${Math.round(run.player.x)},${Math.round(run.player.y)})`));
+}, 1000);
+canvas.addEventListener("contextlost", () => reportError(new Error("the screen lost its graphics context")));
+canvas.addEventListener("contextrestored", () => reportError(new Error("graphics context restored")));
 
 function step(now) {
   const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
