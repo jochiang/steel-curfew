@@ -379,3 +379,24 @@ export function fogTexture(color, size = 256, seed = 7, maxAlpha = 0.12) {
   g.putImageData(img, 0, 0);
   return c;
 }
+
+// ---------------------------------------------------------------- weapons (mounted on the shoulders)
+// Drawn pointing right with the mount at the left edge, middle row; the renderer rotates them to
+// the aim. Chainblade has 2 frames (teeth crawl); pyre has a pilot-light flicker frame.
+const WEAPON_ART = {
+  autocannon: [["oooooooo.", "o44333ooo", "o3222yyyo", "oooooooo."]],
+  flak:       [["ooooooo", "o433oyo", "o322oyo", "o322oyo", "ooooooo"]],
+  missiles:   [["oooooo", "o3kk3o", "o3kk3o", "o2kk2o", "o2kk2o", "oooooo"]],
+  lance:      [["ooooooooooo", "o43qQqQqQco", "ooooooooooo"]],
+  nova:       [[".oooo.", "o4qq3o", "oqQQqo", "oqQQqo", "o3qq2o", ".oooo."]],
+  rail:       [["oooooooooooo", "o44vvvvvvvvo", "o21ooooooooo", "o33vvvvvvvvo", "oooooooooooo"]],
+  fist:       [["oooo...", "o33oooo", "o3344o5", "o3233o4", "o2222oo", "oooooo."]],
+  chainblade: [["oooooooooooo.", "o32tTtTtTtTto", "oooooooooooo."], ["oooooooooooo.", "o32TtTtTtTtTo", "oooooooooooo."]],
+  pyre:       [["oooo....", "orrooooo", "orr3322f", "oooooooo"], ["oooo....", "orrooooo", "orr3322F", "oooooooo"]],
+};
+export function weaponSprites() {
+  const p = palOf("steel", { y: "#ffd36b", k: "#15131b", q: "#4fb6de", Q: "#bff4ff", c: "#ffffff", v: "#a67cff", t: "#8a8f99", T: "#e6edf3", r: "#9e2f34", f: "#ff9a4c", F: "#fff1b0" });
+  const out = {};
+  for (const [k, frames] of Object.entries(WEAPON_ART)) out[k] = frames.map((rows) => build(rows, p));
+  return out;
+}

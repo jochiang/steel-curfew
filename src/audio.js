@@ -83,8 +83,14 @@ const SFX = {
     tone("sine", 55, 28, 0.9 + s * 0.4, 0.3); tone("triangle", 110, 45, 0.5, 0.1);
     hiss(0.5, 0.1, { type: "lowpass", f0: 400, f1: 80, when: 0.18 });
   },
+  tink: () => gate("tink", 45) && (tone("square", 1700 + Math.random() * 400, 1100, 0.02, 0.018), hiss(0.02, 0.025, { f0: 5200, q: 2 })),
+  reload: () => gate("reload", 150) && (tone("square", 230, 110, 0.05, 0.05), hiss(0.04, 0.05, { type: "lowpass", f0: 900 }), tone("square", 300, 160, 0.04, 0.04, { when: 0.12 })),
+  reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
+  casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),
+  punch: () => gate("punch", 80) && (tone("sine", 95, 32, 0.2, 0.4), tone("square", 170, 55, 0.07, 0.09), hiss(0.14, 0.2, { type: "lowpass", f0: 1400, f1: 180 }), hiss(0.03, 0.08, { f0: 3500, q: 1 })),
+  saw: () => gate("saw", 85) && (tone("sawtooth", 130 + Math.random() * 30, 170, 0.09, 0.05), hiss(0.09, 0.06, { f0: 2600, q: 1.5 }), tone("square", 1400, 900, 0.02, 0.015)),
   missile: () => gate("missile", 70) && (hiss(0.18, 0.08, { f0: 700, f1: 2200, q: 1.2 }), tone("sine", 140, 70, 0.08, 0.08)),
-  flame: () => gate("flame", 90) && hiss(0.14, 0.07, { type: "lowpass", f0: 1100, f1: 500 }),
+  flame: () => gate("flame", 90) && (hiss(0.14, 0.07, { type: "lowpass", f0: 1100, f1: 500 }), Math.random() < 0.5 && hiss(0.015, 0.05, { f0: 3000 + Math.random() * 2000, q: 3, when: Math.random() * 0.08 })),
   rail: () => { tone("square", 1600, 180, 0.05, 0.08); tone("sine", 70, 24, 0.5, 0.45); tone("triangle", 140, 45, 0.35, 0.12); hiss(0.3, 0.14, { f0: 3000, f1: 300, q: 0.8 }); },
   lob: (e) => gate("lob", 90) && (tone("sine", 95, 45, 0.12, 0.14), hiss(0.05, 0.06, { type: "lowpass", f0: 900 }),
     tone("sine", 1500, 520, Math.max(0.3, (e.dur || 1.2) - 0.15), 0.018, { when: 0.12, attack: 0.2 })),   // falling whistle

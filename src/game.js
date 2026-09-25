@@ -328,8 +328,10 @@ export function update(run, dt, move) {
   for (const w of run.weapons) {
     const def = WEAPONS[w.key];
     w.cd -= dt;
+    w.kick = Math.max(0, (w.kick || 0) - dt * 16);      // recoil springs back
+    w.swingT = Math.max(0, (w.swingT || 0) - dt);       // melee lunge animation
     if (def.family === "ballistic") {
-      if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) w.mag = def.mag;
+      if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) { w.mag = def.mag; run.events.push({ type: "reloaded" }); }
       if (offline || w.reloadT > 0 || w.cd > 0) continue;
       if (def.missile) {   // missiles ignore cover: they arc over it
         const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
@@ -338,22 +340,33 @@ export function update(run, dt, move) {
         run.missiles.push({ x: m.x, y: m.y + 4, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: 0,
           dmg: weaponDmg(run, w), aoe: def.missile.aoe, speed: def.missile.speed });
         run.events.push({ type: "missile" });
+        run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
+        w.kick = 2; w.aim = a0;
         w.cd = def.interval;
         if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
         continue;
       }
       const t = sightedEnemy(run, def.range * (1 + s.rangeMul));
       if (!t) continue;
-      const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w);
+      const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w), flak = def.pellets > 1;
       for (let i = 0; i < def.pellets; i++) {
-        const a = base + (rand() - 0.5) * def.spread * (def.pellets > 1 ? 1 : 2);
-        const sp = def.speed * (def.pellets > 1 ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic" });
+        const a = base + (rand() - 0.5) * def.spread * (flak ? 1 : 2);
+        const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
+        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
       }
-      run.fx.push({ type: "muzzle", x: p.x + Math.cos(base) * 9, y: p.y + Math.sin(base) * 9, t: 0.05, max: 0.05 });
-      run.events.push({ type: def.pellets > 1 ? "flak" : "shot" });
+      const m = mountPoint(run, run.weapons.indexOf(w)), far = Math.sign(m.x - p.x) * Math.cos(base) < -0.2;
+      const ml = (flak ? 9 : 11) + (far ? 6 : 0);   // barrel tip (weapons across the body are pushed forward to clear it)
+      run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.1 : 0.06, max: flak ? 0.1 : 0.06 });
+      run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
+      if (flak) for (let k = 0; k < 5; k++) {   // smoke from the barrel
+        const sa = base + (rand() - 0.5) * 0.9, v = 20 + rand() * 30;
+        run.parts.push({ x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, vx: Math.cos(sa) * v, vy: Math.sin(sa) * v - 5, t: 0.5, max: 0.5, color: "#8a8680", size: 2, steam: true });
+      }
+      w.kick = flak ? 3 : 1.5; w.aim = base;
+      run.shake = Math.max(run.shake, flak ? 2.4 : 0.7);
+      run.events.push({ type: flak ? "flak" : "shot" });
       w.cd = def.interval;
-      if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
+      if (--w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
     } else if (def.family === "melee") {
       if (offline || w.cd > 0) continue;
       const reach = def.reach * (1 + s.rangeMul) + run.chassis.radius;
@@ -370,23 +383,38 @@ export function update(run, dt, move) {
         });
         igniteInArc(run, a, def.arc, reach + 4, def.buildingBurn);
         const m = mountPoint(run, run.weapons.indexOf(w));
-        for (let k = 0; k < 4; k++) {
-          const fa = a + (rand() - 0.5) * def.arc, v = 90 + rand() * 60;
-          run.parts.push({ x: m.x, y: m.y + 4, vx: Math.cos(fa) * v, vy: Math.sin(fa) * v, t: 0.2 + rand() * 0.12, max: 0.32, color: rand() < 0.4 ? "#fff1b0" : rand() < 0.6 ? "#ffb347" : "#e8602c", size: 2, fire: true });
+        for (let k = 0; k < 7; k++) {
+          const fa = a + (rand() - 0.5) * def.arc, v = 80 + rand() * 80, tip = 7;
+          run.parts.push({ x: m.x + Math.cos(a) * tip, y: m.y + Math.sin(a) * tip, vx: Math.cos(fa) * v, vy: Math.sin(fa) * v, t: 0.18 + rand() * 0.16, max: 0.34, color: rand() < 0.35 ? "#fff1b0" : rand() < 0.6 ? "#ffb347" : "#e8602c", size: rand() < 0.4 ? 3 : 2, fire: true });
         }
+        if (rand() < 0.5) run.parts.push({ x: p.x + Math.cos(a) * reach, y: p.y + Math.sin(a) * reach, vx: Math.cos(a) * 15, vy: -14, t: 0.8, max: 0.8, color: "#3a3230", size: 3, steam: true });
+        w.aim = a; w.kick = 0.6;
         run.fx.push({ type: "flamecone", x: p.x + Math.cos(a) * reach * 0.6, y: p.y + Math.sin(a) * reach * 0.6, t: 0.12, max: 0.12 });
         run.events.push({ type: "flame" });
         w.cd = def.cooldown;
         continue;
       }
+      const heavy = w.key === "fist";
+      let hits = 0;
       near(p.x, p.y, reach + 20, (e) => {
         const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
         if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
         hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock);
+        hits++;
+        if (!heavy) for (let k = 0; k < 3; k++) {   // chainblade: sparks off every body it bites
+          const sa = a + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 60 + rand() * 90;
+          run.parts.push({ x: e.x, y: e.y, vx: Math.cos(sa) * v, vy: Math.sin(sa) * v, t: 0.18, max: 0.18, color: rand() < 0.5 ? "#fff6d6" : "#ffd36b", size: 1, spark: true });
+        }
       });
       buildingsInArc(run, a, def.arc, reach + 6, dmg * BUILDING_DMG.melee);
-      run.fx.push({ type: "swing", x: p.x, y: p.y, a, arc: def.arc, reach, t: 0.14, max: 0.14, heavy: w.key === "fist" });
-      run.events.push({ type: "swing", heavy: w.key === "fist" });
+      run.fx.push({ type: "swing", x: p.x, y: p.y, a, arc: def.arc, reach, t: heavy ? 0.16 : 0.12, max: heavy ? 0.16 : 0.12, heavy });
+      if (heavy && hits) {   // the fist connects: impact star, shockwave, dust, a beat of hit-stop
+        run.fx.push({ type: "punch", x: t.x, y: t.y, a, t: 0.28, max: 0.28 });
+        hitStop(run, 0.045);
+        run.shake = Math.max(run.shake, 3.5);
+      } else if (hits) run.shake = Math.max(run.shake, 0.8);
+      w.swingT = heavy ? 0.16 : 0.1; w.aim = a;
+      run.events.push({ type: hits ? (heavy ? "punch" : "saw") : "swing", heavy });
       w.cd = def.cooldown;
     }
   }
@@ -443,6 +471,8 @@ export function update(run, dt, move) {
       const sp = Math.hypot(sh.vx, sh.vy);
       hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
       sh.life = 0;
+      run.fx.push({ type: "impact", x: sh.x, y: sh.y, t: 0.07, max: 0.07 });
+      run.events.push({ type: "tink" });
       for (let i = 0; i < 3; i++) {
         const a = Math.atan2(-sh.vy, -sh.vx) + (rand() - 0.5) * 1.8, v = 40 + rand() * 60;
         run.parts.push({ x: sh.x, y: sh.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.15, max: 0.15, color: "#ffe9a8", size: 1, spark: true });
@@ -482,6 +512,8 @@ export function update(run, dt, move) {
       near(m.tx, m.ty, m.aoe + 16, (e) => { if (Math.hypot(e.x - m.tx, e.y - m.ty) < m.aoe + e.d.r) hitEnemy(run, e, m.dmg, (e.x - m.tx) * 3, (e.y - m.ty) * 3); });
       buildingsAround(run, m.tx, m.ty, m.aoe, m.dmg * BUILDING_DMG.ballistic * 0.6);
       run.fx.push({ type: "boom", x: m.tx, y: m.ty, r: 6, t: 0.35, max: 0.35 });
+      run.fx.push({ type: "ring", x: m.tx, y: m.ty, r: m.aoe + 4, t: 0.22, max: 0.22, color: "#ffd27a" });
+      run.shake = Math.max(run.shake, 1.4);
       run.events.push({ type: "boom", r: 5 });
     }
   }
@@ -539,6 +571,13 @@ function buildingsInArc(run, a, arc, reach, dmg) {
     seen.add(id);
     damageBuilding(city, city.buildings[id], dmg);
   }
+}
+
+/** A beat of hit-stop, rate-limited so fast weapons don't make the game stutter */
+function hitStop(run, secs) {
+  if (run.time - (run.lastStop ?? -9) < 0.2) return;
+  run.lastStop = run.time;
+  run.freeze = Math.max(run.freeze, secs);
 }
 
 /** Lob an artillery shell from (x0,y0) to land at (tx,ty) */
@@ -689,6 +728,8 @@ function discharge(run, w, aim) {
       if (d < range + e.d.r) hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock);
     });
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
+    run.fx.push({ type: "ring", x: p.x, y: p.y, r: range * 0.6, t: 0.3, max: 0.3, color: "#dff8ff" });
+    run.fx.push({ type: "dust", x: p.x, y: p.y, r: range * 0.8, t: 0.6, max: 0.6 });
     buildingsInArc(run, 0, Math.PI * 2, range, dmg * BUILDING_DMG.energy);
     run.events.push({ type: "nova" });
     return;
@@ -704,6 +745,8 @@ function discharge(run, w, aim) {
   run.fx.push({ type: rail ? "rail" : "beam", x1: m.x + Math.cos(bestA) * 8, y1: m.y + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: rail ? 0.4 : 0.3, max: rail ? 0.4 : 0.3 });
   if (rail) {
     run.shake = Math.max(run.shake, 8);
+    run.freeze = Math.max(run.freeze, 0.09);
+    run.fx.push({ type: "flare", x: m.x + Math.cos(bestA) * 10, y: m.y + Math.sin(bestA) * 10, t: 0.25, max: 0.25, color: "#e6d4ff" });
     const rand = run.rand;
     for (let i = 0; i < 24; i++) {   // sparks shed along the slug's path
       const f = rand(), a = bestA + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 20 + rand() * 50;

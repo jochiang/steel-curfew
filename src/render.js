@@ -1,7 +1,7 @@
 import { ARENA, ENEMIES, WEAPONS } from "./content.js";
 import { weaponsOffline, mountPoint, darkness } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
-import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, OUTLINE } from "./art.js";
+import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 
@@ -107,6 +107,10 @@ export function createRenderer(canvas) {
   const lightOf = (r, col) => { r = Math.max(2, Math.round(r)); const k = "L" + r + col; if (!glows.has(k)) glows.set(k, glow(r, col, true)); return glows.get(k); };
   const light = new OffscreenCanvas(8, 8), lg = light.getContext("2d");
   const flames = [];            // renderer-only fire particles on wrecked and fallen buildings
+  const casings = [];           // spent brass: hops, bounces, then stays on the street
+  const dusts = [];             // punch and shockwave dust puffs
+  const wspr = weaponSprites();
+  const wdim = Object.fromEntries(Object.entries(wspr).map(([k, fr]) => [k, fr.map((f) => flash(f, "#2a1c1a"))]));
   const burning = new Map();    // building id -> run.time when its rubble stops burning
 
   let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.normal;
@@ -216,8 +220,22 @@ export function createRenderer(canvas) {
     const tod = { ambient: ambientAt(d), vig: 1 + Math.round(d), d };
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
-    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1; g.imageSmoothingEnabled = false;
     g.fillStyle = C.void; g.fillRect(0, 0, buf.width, buf.height);
+    for (const f of run.fx) {   // new brass and dust
+      if (f.spawned) continue;
+      if (f.type === "casing") {
+        f.spawned = true;
+        for (let k = 0; k < f.n; k++) {
+          const side = Math.cos(f.a) >= 0 ? -1 : 1, sa = f.a + side * (Math.PI / 2 + (Math.random() - 0.5) * 0.8), v = 30 + Math.random() * 30;
+          casings.push({ x: f.x, y: f.y, z: 5, vx: Math.cos(sa) * v - Math.cos(f.a) * 12, vy: Math.sin(sa) * v * 0.6, vz: 40 + Math.random() * 30, bounced: 0, spin: Math.random() * 4 });
+        }
+      } else if (f.type === "punch" || f.type === "dust") {
+        f.spawned = true;
+        const n = f.type === "punch" ? 8 : 16, r = f.type === "punch" ? 4 : f.r;
+        for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2 + Math.random() * 0.4; dusts.push({ x: f.x + Math.cos(a) * r * 0.4, y: f.y + Math.sin(a) * r * 0.3, vx: Math.cos(a) * (18 + Math.random() * 22) * (f.type === "dust" ? 2 : 1), vy: Math.sin(a) * (10 + Math.random() * 12) * (f.type === "dust" ? 2 : 1), t: 0.55, max: 0.55 }); }
+      }
+    }
     g.drawImage(floor, ox, oy);
 
     // ---- daylight: a few soft floor glows (at night the light map does this job)
@@ -232,6 +250,30 @@ export function createRenderer(canvas) {
       }
       g.globalCompositeOperation = "source-over";
     }
+
+    // ---- brass on the street, dust
+    for (let i = casings.length - 1; i >= 0; i--) {
+      const c = casings[i];
+      c.vz -= 260 * dt; c.z += c.vz * dt; c.x += c.vx * dt; c.y += c.vy * dt; c.spin += dt * 20;
+      if (c.z <= 0) {
+        c.z = 0;
+        if (c.bounced < 2) { c.vz = -c.vz * 0.35; c.vx *= 0.5; c.vy *= 0.5; c.bounced++; if (c.bounced === 1) run.events.push({ type: "casing" }); }
+        else {   // settled: leave it on the street for the rest of the run
+          fg.fillStyle = "#b8923e"; fg.fillRect(Math.round(c.x), Math.round(c.y), 1, 1);
+          fg.fillStyle = "#6e5424"; fg.fillRect(Math.round(c.x) + (Math.cos(c.spin) > 0 ? 1 : -1), Math.round(c.y), 1, 1);
+          casings.splice(i, 1); continue;
+        }
+      }
+      g.fillStyle = "#e0b85a"; g.fillRect(X(c.x), Y(c.y - c.z), Math.sin(c.spin) > 0 ? 2 : 1, 1);
+    }
+    for (let i = dusts.length - 1; i >= 0; i--) {
+      const q = dusts[i];
+      q.t -= dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.9; q.vy *= 0.9;
+      if (q.t <= 0) { dusts.splice(i, 1); continue; }
+      const k = q.t / q.max, sz = Math.round(2 + (1 - k) * 3);
+      g.globalAlpha = k * 0.5; g.fillStyle = "#8c867c"; g.fillRect(X(q.x) - (sz >> 1), Y(q.y) - (sz >> 1), sz, sz);
+    }
+    g.globalAlpha = 1;
 
     // ---- salvage
     for (const k of run.pickups) {
@@ -388,12 +430,14 @@ export function createRenderer(canvas) {
           g.fillStyle = inner < 0.3 ? "#ffffff" : inner < 0.7 ? "#bff4ff" : "#4fb6de";
           linePx(g, X(f.x1 + (nx / nl) * o), Y(f.y1 + (ny / nl) * o), X(f.x2 + (nx / nl) * o), Y(f.y2 + (ny / nl) * o));
         }
-      } else if (f.type === "rail") {
-        const nx = -(f.y2 - f.y1), ny = f.x2 - f.x1, nl = Math.hypot(nx, ny), w = k > 0.6 ? 3 : k > 0.25 ? 2 : 1;
+      } else if (f.type === "rail") {   // the slug's path, then a violet afterimage that thins out
+        const nx = -(f.y2 - f.y1), ny = f.x2 - f.x1, nl = Math.hypot(nx, ny), w = k > 0.6 ? 4 : k > 0.35 ? 2 : 1;
+        if (k < 0.35) g.globalAlpha = k / 0.35;
         for (let o = -w / 2; o <= w / 2; o += 0.5) {
-          g.fillStyle = Math.abs(o) < 0.6 ? "#ffffff" : "#b48cff";
+          g.fillStyle = k > 0.35 && Math.abs(o) < 0.8 ? "#ffffff" : k > 0.35 ? "#b48cff" : "#7a4cdf";
           linePx(g, X(f.x1 + (nx / nl) * o), Y(f.y1 + (ny / nl) * o), X(f.x2 + (nx / nl) * o), Y(f.y2 + (ny / nl) * o));
         }
+        g.globalAlpha = 1;
       } else if (f.type === "ring") {
         const r = f.r * (1 - k * k * 0.7);
         g.fillStyle = f.color;
@@ -412,7 +456,44 @@ export function createRenderer(canvas) {
         circlePx(g, X(f.x), Y(f.y - 3), f.reach - 1, f.a - spread / 2.6, f.a + spread / 2.6);
         if (f.heavy) circlePx(g, X(f.x), Y(f.y - 3), f.reach - 2, f.a - spread / 4, f.a + spread / 4);
       } else if (f.type === "muzzle") {
-        g.fillStyle = "#fff6d6"; g.fillRect(X(f.x) - 1, Y(f.y), 3, 1); g.fillRect(X(f.x), Y(f.y) - 1, 1, 3);
+        const x = X(f.x), y = Y(f.y - 4), ca = Math.cos(f.a ?? 0), sa = Math.sin(f.a ?? 0);
+        if (f.key === "flak") {   // a cone of fire out of the muzzle
+          for (let n = 0; n < 16; n++) {
+            const d = Math.random() * 10 * k + 1, a = (f.a ?? 0) + (Math.random() - 0.5) * 0.9;
+            g.fillStyle = d < 4 ? "#ffffff" : d < 7 ? "#fff1b0" : "#ffb347";
+            g.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), d < 4 ? 2 : 1, d < 4 ? 2 : 1);
+          }
+        } else {   // autocannon: a star that alternates shape shot to shot
+          const big = Math.floor(run.time * 30) % 2;
+          g.fillStyle = "#fff6d6"; g.fillRect(x - 1, y - 1, 3, 3);
+          g.fillStyle = "#ffd36b";
+          g.fillRect(Math.round(x + ca * 3), Math.round(y + sa * 3), 2, 2);
+          if (big) { g.fillRect(x - 3, y, 7, 1); g.fillRect(x, y - 3, 1, 7); } else { g.fillRect(x - 2, y - 2, 1, 1); g.fillRect(x + 2, y - 2, 1, 1); g.fillRect(x - 2, y + 2, 1, 1); g.fillRect(x + 2, y + 2, 1, 1); }
+        }
+      } else if (f.type === "impact") {
+        const x = X(f.x), y = Y(f.y - 4);
+        g.fillStyle = "#ffffff"; g.fillRect(x - 1, y - 1, 3, 3);
+        g.fillStyle = "#ffd36b"; g.fillRect(x - 2, y, 1, 1); g.fillRect(x + 2, y, 1, 1); g.fillRect(x, y - 2, 1, 1); g.fillRect(x, y + 2, 1, 1);
+      } else if (f.type === "punch") {   // impact star + shockwave ring
+        const e = 1 - k, x = X(f.x), y = Y(f.y - 3);
+        if (e < 0.3) {
+          g.fillStyle = "#ffffff";
+          for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]]) {
+            const len = (dx && dy ? 3 : 6) * (1 - e * 2);
+            for (let s = 0; s < len; s++) g.fillRect(x + dx * s, y + dy * s, 1, 1);
+          }
+          g.fillStyle = "#ffe8b8"; g.fillRect(x - 2, y - 2, 5, 5);
+        }
+        g.fillStyle = e < 0.5 ? "#ffffff" : "#c9c0b0";
+        circlePx(g, x, y, 4 + e * 16);
+        if (e < 0.5) circlePx(g, x, y, 3 + e * 12);
+      } else if (f.type === "launch") {   // missile back-blast puff
+        const x = X(f.x - Math.cos(f.a) * 4), y = Y(f.y - Math.sin(f.a) * 4 - 4);
+        g.globalAlpha = k; g.fillStyle = k > 0.6 ? "#fff1b0" : "#9a9590"; g.fillRect(x - 2, y - 2, 4, 4); g.globalAlpha = 1;
+      } else if (f.type === "flare") {
+        const x = X(f.x), y = Y(f.y - 4), r = Math.round(2 + k * 6);
+        g.fillStyle = f.color; discPx(g, x, y, r * 0.6);
+        g.fillStyle = "#ffffff"; g.fillRect(x - r, y, r * 2 + 1, 1); g.fillRect(x, y - r, 1, r * 2 + 1);
       } else if (f.type === "boom") {
         const e = 1 - k, x = X(f.x), y = Y(f.y), r = f.r * (0.5 + e * 1.1);
         if (e < 0.18) { g.fillStyle = "#ffffff"; discPx(g, x, y, r); }
@@ -451,6 +532,10 @@ export function createRenderer(canvas) {
       } else if (f.type === "rail") {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 12), gl = glowOf(Math.round(7 * bloom), k > 0.5 ? "#3a2466" : "#1e1438"), r = gl.width >> 1;
         for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
+      } else if (f.type === "muzzle") {
+        const r = f.key === "flak" ? 9 : 6; g.drawImage(glowOf(r, "#5a4a1a"), X(f.x) - r, Y(f.y - 4) - r);
+      } else if (f.type === "punch" && k > 0.6) {
+        g.drawImage(glowOf(10, "#4a4438"), X(f.x) - 10, Y(f.y - 3) - 10);
       } else if (f.type === "boom" && k > 0.55) {
         const r = Math.round(f.r * 1.8 * bloom); g.drawImage(glowOf(r, "#6a3410"), X(f.x) - r, Y(f.y) - r);
       } else if (f.type === "ring" && f.thick) {
@@ -476,7 +561,8 @@ export function createRenderer(canvas) {
     const font = `700 ${Math.round(7 * S)}px "Pixelify Sans", ui-monospace, monospace`, bigFont = `700 ${Math.round(10 * S)}px "Pixelify Sans", ui-monospace, monospace`;
     for (const tx of run.texts) {
       const [x, y] = toScreen(tx.x, tx.y);
-      ctx.font = tx.big ? bigFont : font;
+      const age = tx.max - tx.t, pop = tx.big ? 1 : age < 0.08 ? 1.45 - (age / 0.08) * 0.45 : 1;
+      ctx.font = tx.big ? bigFont : pop > 1 ? `700 ${Math.round(7 * S * pop)}px "Pixelify Sans", ui-monospace, monospace` : font;
       ctx.globalAlpha = Math.min(1, (tx.t / tx.max) * 2);
       ctx.fillStyle = OUTLINE;
       for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.fillText(tx.n, x + dx * S * 0.5, y + dy * S * 0.5);
@@ -606,7 +692,11 @@ export function createRenderer(canvas) {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10);
         for (let i = 0; i <= n; i++) put(18 * (0.5 + k * 0.5), "#5a3a9a", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
       }
-      if (f.type === "muzzle") put(22, "#8a7236", f.x, f.y);
+      if (f.type === "muzzle") put(f.key === "flak" ? 34 : 22, f.key === "flak" ? "#a8803a" : "#8a7236", f.x, f.y);
+      else if (f.type === "impact") put(8, "#6a5a2a", f.x, f.y);
+      else if (f.type === "punch") put(26 * k + 6, "#8a7a60", f.x, f.y);
+      else if (f.type === "flare") put(30 * k + 6, "#6a4aa8", f.x, f.y);
+      else if (f.type === "launch") put(12, "#7a5a28", f.x, f.y);
       else if (f.type === "boom") put(f.r * 5 * (0.4 + k), k > 0.5 ? "#b8601e" : "#6a2e10", f.x, f.y);
       else if (f.type === "beam") {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 8);
@@ -628,11 +718,17 @@ export function createRenderer(canvas) {
     if (ghost) g.globalAlpha = 1;
   }
 
-  function drawShot(s, X, Y) {
+  function drawShot(s, X, Y) {   // tracer: a bright head and a fading tail
     const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp, y = s.y - SHOT_H;
-    g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 3), Y(y - uy * 3), 1, 1);
-    g.fillStyle = C.ballistic; g.fillRect(X(s.x - ux * 1.5), Y(y - uy * 1.5), 1, 1); g.fillRect(X(s.x), Y(y), 1, 1);
-    g.fillStyle = "#fff6d6"; g.fillRect(X(s.x + ux), Y(y + uy), 1, 1);
+    if (s.big) {
+      g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 2), Y(y - uy * 2), 1, 1);
+      g.fillStyle = "#ffd36b"; g.fillRect(X(s.x) - 1, Y(y) - 1, 2, 2);
+      g.fillStyle = "#fff6d6"; g.fillRect(X(s.x), Y(y), 1, 1);
+      return;
+    }
+    g.fillStyle = "#7a5a2a"; linePx(g, X(s.x - ux * 7), Y(y - uy * 7), X(s.x - ux * 4), Y(y - uy * 4));
+    g.fillStyle = "#e8a83a"; linePx(g, X(s.x - ux * 4), Y(y - uy * 4), X(s.x - ux), Y(y - uy));
+    g.fillStyle = "#fff6d6"; g.fillRect(X(s.x), Y(y), 1, 1); g.fillRect(X(s.x + ux), Y(y + uy), 1, 1);
   }
   function drawBolt(b, t, X, Y) {
     const x = X(b.x), y = Y(b.y - BOLT_H), pulse = Math.floor(t * 12 + b.x) % 2;
@@ -671,24 +767,33 @@ export function createRenderer(canvas) {
     const ms = mechSet(run.chassisKey);
     const set = blinking ? ms.flash : venting ? (Math.floor(t * 10) % 2 ? ms.hotA : ms.hotB) : ms.cold;
     const spr = set[fi], [sx0, sy0] = mechAt(spr, X, Y, p);
-    g.drawImage(spr, sx0, sy0);
-    // barrels come off the shoulder mounts (left, right, alternating; later pairs stack)
-    const offline = weaponsOffline(run), a = p.aim, cx = Math.cos(a), cy = Math.sin(a);
-    const bob = p.moving && fi === 2 ? 1 : 0;
-    run.weapons.forEach((w, i) => {
-      const def = WEAPONS[w.key], mp = mountPoint(run, i);
-      const msx = X(mp.x), msy = Y(mp.y) + bob;
-      const len = def.family === "melee" ? 5 : def.family === "energy" ? 8 : 7;
-      const dim = offline || (venting && def.family === "energy");
-      const col = dim ? "#6b4b44" : def.family === "energy" ? C.energy : def.family === "melee" ? C.melee : C.ballistic;
-      g.fillStyle = OUTLINE;
-      linePx(g, msx, msy + 1, msx + cx * len, msy + 1 + cy * len);
-      g.fillStyle = dim ? "#4a3430" : "#56606e";
-      linePx(g, msx, msy, msx + cx * (len - 2), msy + cy * (len - 2));
-      g.fillStyle = col;
-      g.fillRect(Math.round(msx + cx * (len - 1)), Math.round(msy + cy * (len - 1)), 1, 1);
-      g.fillRect(Math.round(msx + cx * len), Math.round(msy + cy * len), 1, 1);
+    // weapons sit on the shoulder mounts and swivel to their target; recoil pushes them back,
+    // melee lunges forward on a swing. A weapon aiming across the body is drawn behind the torso
+    // and pushed forward so it pokes out past it.
+    const offline = weaponsOffline(run), bob = p.moving && fi === 2 ? 1 : 0;
+    const weapons = run.weapons.map((w, i) => {
+      const mp = mountPoint(run, i), a = w.aim ?? p.aim;
+      return { w, i, mp, a, far: Math.sign(mp.x - p.x) * Math.cos(a) < -0.2 };
     });
+    const drawWeapon = ({ w, mp, a, far }) => {
+      const def = WEAPONS[w.key];
+      const lunge = w.swingT > 0 ? Math.sin((1 - w.swingT / (w.key === "fist" ? 0.16 : 0.1)) * Math.PI) * (w.key === "fist" ? 9 : 4) : 0;
+      const off = lunge - (w.kick || 0) + (far ? 6 : 0);
+      const frames = wspr[w.key] || wspr.autocannon;
+      const fr = w.key === "chainblade" ? Math.floor(run.time * 24) % 2 : w.key === "pyre" ? (Math.random() < 0.5 ? 1 : 0) : 0;
+      const ws = frames[fr % frames.length];
+      const dim = offline || (venting && def.family === "energy");
+      g.save();
+      g.translate(X(mp.x + Math.cos(a) * off), Y(mp.y + Math.sin(a) * off) + bob);
+      g.rotate(a);
+      if (Math.cos(a) < 0) g.scale(1, -1);   // keep it right side up when aiming left
+      g.drawImage(ws, -1, -(ws.height >> 1));
+      if (dim) { g.globalAlpha = 0.65; g.drawImage(wdim[w.key][fr % frames.length], -1, -(ws.height >> 1)); g.globalAlpha = 1; }
+      g.restore();
+    };
+    for (const it of weapons) if (it.far) drawWeapon(it);
+    g.drawImage(spr, sx0, sy0);
+    for (const it of weapons) if (!it.far) drawWeapon(it);
   }
 
   function drawCapacitor(run, X, Y) {
