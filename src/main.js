@@ -20,6 +20,7 @@ const STEP = 1 / 60;
 
 const canvas = document.getElementById("game");
 if (params.has("sheet")) { (await import("./sheet.js")).drawSheet(canvas); throw new Error("sprite sheet mode"); }
+if (params.has("sheet2")) { (await import("./sheet2.js")).drawSheet2(canvas); throw new Error("sprite sheet mode"); }
 const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);

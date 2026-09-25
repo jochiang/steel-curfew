@@ -69,47 +69,47 @@ export const HOLD_GIVEUP = 2.5;  // seconds at full charge before it settles for
 
 export const WEAPONS = {
   autocannon: {
-    name: "Autocannon", family: "ballistic", weight: 6, price: 18,
+    name: "Autocannon", barrel: 8, family: "ballistic", weight: 6, price: 18,
     desc: "Steady stream of shells. Reloads every 10 rounds.",
     dmg: 5, range: 130, interval: 0.14, mag: 10, reload: 1.6, speed: 320, spread: 0.06, pellets: 1,
   },
   flak: {
-    name: "Flak Cannon", family: "ballistic", weight: 8, price: 22,
+    name: "Flak Cannon", barrel: 6, family: "ballistic", weight: 8, price: 22,
     desc: "Short-range spread of 5 pellets. 4-shell magazine.",
     dmg: 4, range: 85, interval: 0.5, mag: 4, reload: 1.8, speed: 280, spread: 0.35, pellets: 5,
   },
   lance: {
-    name: "Particle Lance", family: "energy", weight: 8, price: 28, heat: 50,
+    name: "Particle Lance", barrel: 10, family: "energy", weight: 8, price: 28, heat: 50,
     desc: "Discharges a piercing beam through the densest line of enemies.",
     dmg: 55, range: 180, width: 7, kind: "beam",
   },
   nova: {
-    name: "Pulse Emitter", family: "energy", weight: 5, price: 22, heat: 35,
+    name: "Pulse Emitter", barrel: 5, family: "energy", weight: 5, price: 22, heat: 35,
     desc: "Discharges a shockwave around the mech that hurls enemies back.",
     dmg: 30, range: 58, kind: "nova", knock: 160,
   },
   missiles: {
-    name: "Missile Pod", family: "ballistic", weight: 7, price: 26,
+    name: "Missile Pod", barrel: 5, family: "ballistic", weight: 7, price: 26,
     desc: "Salvos of 3 homing missiles that arc over cover and burst on impact.",
     dmg: 9, range: 170, interval: 0.16, mag: 3, reload: 2.2, missile: { speed: 150, aoe: 16 },
   },
   rail: {
-    name: "Railgun", family: "energy", weight: 9, price: 32, heat: 70,
+    name: "Railgun", barrel: 11, family: "energy", weight: 9, price: 32, heat: 70,
     desc: "Discharges a hypersonic slug that punches through everything, buildings included, across the map.",
     dmg: 110, range: 340, width: 3, kind: "rail",
   },
   fist: {
-    name: "Hydraulic Fist", family: "melee", weight: 7, price: 16,
+    name: "Hydraulic Fist", barrel: 6, family: "melee", weight: 7, price: 16,
     desc: "Slow, heavy punches with big knockback.",
     dmg: 18, reach: 20, arc: 1.1, cooldown: 0.55, knock: 110,
   },
   chainblade: {
-    name: "Chainblade", family: "melee", weight: 5, price: 20,
+    name: "Chainblade", barrel: 12, family: "melee", weight: 5, price: 20,
     desc: "Fast sweeping cuts that hit everything in the arc.",
     dmg: 6, reach: 22, arc: 1.9, cooldown: 0.2, knock: 25,
   },
   pyre: {
-    name: "Pyre Projector", family: "melee", weight: 6, price: 22,
+    name: "Pyre Projector", barrel: 7, family: "melee", weight: 6, price: 22,
     desc: "Sprays fire in a cone. Enemies burn; buildings catch fire and burn down.",
     dmg: 2.5, reach: 34, arc: 0.8, cooldown: 0.1, knock: 4, burn: { dps: 5, dur: 2.5 }, buildingBurn: 5,
   },

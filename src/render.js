@@ -1,7 +1,7 @@
 import { ARENA, ENEMIES, WEAPONS } from "./content.js";
 import { weaponsOffline, mountPoint, darkness } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
-import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
+import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 
@@ -84,10 +84,11 @@ export function createRenderer(canvas) {
   const mechSets = new Map();
   const mechSet = (kind) => {
     if (!mechSets.has(kind)) {
-      const m = { cold: mechFrames(kind, false), hotA: mechFrames(kind, true, 0), hotB: mechFrames(kind, true, 1) };
-      m.flash = m.cold.map((f) => flash(f));
-      m.xray = flash(m.cold[0], "#7fd8ff");
-      m.glow = { cold: mechFrames(kind, false, 0, true), hotA: mechFrames(kind, true, 0, true), hotB: mechFrames(kind, true, 1, true) };
+      const m = { cold: mechParts(kind, false), hotA: mechParts(kind, true, 0), hotB: mechParts(kind, true, 1) };
+      const fl = (P) => ({ ...P, torso: Object.fromEntries(Object.entries(P.torso).map(([k, c]) => [k, flash(c)])), legs: Object.fromEntries(Object.entries(P.legs).map(([k, a]) => [k, a.map((c) => flash(c))])) });
+      m.flash = fl(m.cold);
+      m.xray = flash(mechFrames(kind, false)[0], "#7fd8ff");
+      m.glow = { cold: mechParts(kind, false, 0, true), hotA: mechParts(kind, true, 0, true), hotB: mechParts(kind, true, 1, true) };
       mechSets.set(kind, m);
     }
     return mechSets.get(kind);
@@ -456,7 +457,7 @@ export function createRenderer(canvas) {
         circlePx(g, X(f.x), Y(f.y - 3), f.reach - 1, f.a - spread / 2.6, f.a + spread / 2.6);
         if (f.heavy) circlePx(g, X(f.x), Y(f.y - 3), f.reach - 2, f.a - spread / 4, f.a + spread / 4);
       } else if (f.type === "muzzle") {
-        const x = X(f.x), y = Y(f.y - 4), ca = Math.cos(f.a ?? 0), sa = Math.sin(f.a ?? 0);
+        const x = X(f.x), y = Y(f.y), ca = Math.cos(f.a ?? 0), sa = Math.sin(f.a ?? 0);
         if (f.key === "flak") {   // a cone of fire out of the muzzle
           for (let n = 0; n < 16; n++) {
             const d = Math.random() * 10 * k + 1, a = (f.a ?? 0) + (Math.random() - 0.5) * 0.9;
@@ -471,7 +472,7 @@ export function createRenderer(canvas) {
           if (big) { g.fillRect(x - 3, y, 7, 1); g.fillRect(x, y - 3, 1, 7); } else { g.fillRect(x - 2, y - 2, 1, 1); g.fillRect(x + 2, y - 2, 1, 1); g.fillRect(x - 2, y + 2, 1, 1); g.fillRect(x + 2, y + 2, 1, 1); }
         }
       } else if (f.type === "impact") {
-        const x = X(f.x), y = Y(f.y - 4);
+        const x = X(f.x), y = Y(f.y);
         g.fillStyle = "#ffffff"; g.fillRect(x - 1, y - 1, 3, 3);
         g.fillStyle = "#ffd36b"; g.fillRect(x - 2, y, 1, 1); g.fillRect(x + 2, y, 1, 1); g.fillRect(x, y - 2, 1, 1); g.fillRect(x, y + 2, 1, 1);
       } else if (f.type === "punch") {   // impact star + shockwave ring
@@ -488,10 +489,10 @@ export function createRenderer(canvas) {
         circlePx(g, x, y, 4 + e * 16);
         if (e < 0.5) circlePx(g, x, y, 3 + e * 12);
       } else if (f.type === "launch") {   // missile back-blast puff
-        const x = X(f.x - Math.cos(f.a) * 4), y = Y(f.y - Math.sin(f.a) * 4 - 4);
+        const x = X(f.x - Math.cos(f.a) * 4), y = Y(f.y - Math.sin(f.a) * 4);
         g.globalAlpha = k; g.fillStyle = k > 0.6 ? "#fff1b0" : "#9a9590"; g.fillRect(x - 2, y - 2, 4, 4); g.globalAlpha = 1;
       } else if (f.type === "flare") {
-        const x = X(f.x), y = Y(f.y - 4), r = Math.round(2 + k * 6);
+        const x = X(f.x), y = Y(f.y), r = Math.round(2 + k * 6);
         g.fillStyle = f.color; discPx(g, x, y, r * 0.6);
         g.fillStyle = "#ffffff"; g.fillRect(x - r, y, r * 2 + 1, 1); g.fillRect(x, y - r, 1, r * 2 + 1);
       } else if (f.type === "boom") {
@@ -533,7 +534,7 @@ export function createRenderer(canvas) {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 12), gl = glowOf(Math.round(7 * bloom), k > 0.5 ? "#3a2466" : "#1e1438"), r = gl.width >> 1;
         for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
       } else if (f.type === "muzzle") {
-        const r = f.key === "flak" ? 9 : 6; g.drawImage(glowOf(r, "#5a4a1a"), X(f.x) - r, Y(f.y - 4) - r);
+        const r = f.key === "flak" ? 9 : 6; g.drawImage(glowOf(r, "#5a4a1a"), X(f.x) - r, Y(f.y) - r);
       } else if (f.type === "punch" && k > 0.6) {
         g.drawImage(glowOf(10, "#4a4438"), X(f.x) - 10, Y(f.y - 3) - 10);
       } else if (f.type === "boom" && k > 0.55) {
@@ -669,13 +670,12 @@ export function createRenderer(canvas) {
       }
     }
     // the mech's visor (and grilles when venting)
-    const mg = mechSet(run.chassisKey).glow, gset = venting ? (Math.floor(t * 10) % 2 ? mg.hotA : mg.hotB) : mg.cold;
-    const gspr = gset[p.moving ? Math.floor(t * 9) % 4 : 0], [gx, gy] = mechAt(gspr, X, Y, p);
-    lg.drawImage(gspr, gx, gy);
+    const mg = mechSet(run.chassisKey).glow, gP = venting ? (Math.floor(t * 10) % 2 ? mg.hotA : mg.hotB) : mg.cold;
+    composeMech(lg, gP, p, X, Y, p.moving ? Math.floor(t * 9) % 4 : 0, null);
     // salvage, bolts, shots
     for (const k of run.pickups) put(6, "#1d5a34", k.x, k.y);
     for (const b of run.bolts) { put(12, "#7a3010", b.x, b.y); lg.fillStyle = "#ffffff"; lg.fillRect(X(b.x) - 2, Y(b.y - BOLT_H) - 2, 5, 5); }
-    for (const s of run.shots) { put(5, "#5a4818", s.x, s.y - SHOT_H); lg.fillStyle = "#ffffff"; lg.fillRect(X(s.x) - 2, Y(s.y - SHOT_H) - 2, 5, 5); }
+    for (const s of run.shots) { const sy = s.y - (s.h ?? SHOT_H); put(5, "#5a4818", s.x, sy); lg.fillStyle = "#ffffff"; lg.fillRect(X(s.x) - 2, Y(sy) - 2, 5, 5); }
     // fire
     for (const [id] of burning) { const b = city.buildings[id]; put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE); }
     for (const [b] of shown) if (stageOf(b) === 2) put(12 + b.w * 3 + Math.random() * 4, "#5a260a", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
@@ -719,7 +719,7 @@ export function createRenderer(canvas) {
   }
 
   function drawShot(s, X, Y) {   // tracer: a bright head and a fading tail
-    const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp, y = s.y - SHOT_H;
+    const sp = Math.hypot(s.vx, s.vy), ux = s.vx / sp, uy = s.vy / sp, y = s.y - (s.h ?? SHOT_H);
     if (s.big) {
       g.fillStyle = "#a8742a"; g.fillRect(X(s.x - ux * 2), Y(y - uy * 2), 1, 1);
       g.fillStyle = "#ffd36b"; g.fillRect(X(s.x) - 1, Y(y) - 1, 2, 2);
@@ -760,25 +760,36 @@ export function createRenderer(canvas) {
     return false;
   }
 
+  // Legs by the direction of travel, torso by the direction of aim (mirrored for left); weapons
+  // drawn under or over the torso depending on which way it faces. between(): weapons behind.
+  function composeMech(ctx2, P, p, X, Y, fi, between, after) {
+    const H = P.legY + P.legsH + 1, left = X(p.x) - (P.w >> 1), top = Y(p.y) + 10 - H;
+    const legDir = p.legDir || "down", face = p.facing || "down";
+    const legs = legDir === "left" || legDir === "right" ? P.legs.side[fi] : P.legs.front[fi];
+    const torso = face === "up" ? P.torso.back : face === "down" ? P.torso.front : P.torso.side;
+    const blit = (img, x, y, flip) => {
+      if (!flip) { ctx2.drawImage(img, x, y); return; }
+      ctx2.save(); ctx2.translate(x + img.width, y); ctx2.scale(-1, 1); ctx2.drawImage(img, 0, 0); ctx2.restore();
+    };
+    blit(legs, left, top + P.legY, legDir === "left");
+    if (between) between();
+    blit(torso, left, top + (p.moving && fi === 2 ? 1 : 0), face === "left");
+    if (after) after();
+  }
+
   function drawPlayer(run, X, Y) {
     const p = run.player, venting = run.cap.vent > 0, t = run.time;
     const blinking = p.iframes > 0 && Math.floor(p.iframes * 20) % 2;
     const fi = p.moving ? Math.floor(t * 9) % 4 : 0;
     const ms = mechSet(run.chassisKey);
-    const set = blinking ? ms.flash : venting ? (Math.floor(t * 10) % 2 ? ms.hotA : ms.hotB) : ms.cold;
-    const spr = set[fi], [sx0, sy0] = mechAt(spr, X, Y, p);
-    // weapons sit on the shoulder mounts and swivel to their target; recoil pushes them back,
-    // melee lunges forward on a swing. A weapon aiming across the body is drawn behind the torso
-    // and pushed forward so it pokes out past it.
+    const P = blinking ? ms.flash : venting ? (Math.floor(t * 10) % 2 ? ms.hotA : ms.hotB) : ms.cold;
+    // weapons sit on the mounts and swivel to their target; recoil pushes them back, melee lunges
     const offline = weaponsOffline(run), bob = p.moving && fi === 2 ? 1 : 0;
-    const weapons = run.weapons.map((w, i) => {
-      const mp = mountPoint(run, i), a = w.aim ?? p.aim;
-      return { w, i, mp, a, far: Math.sign(mp.x - p.x) * Math.cos(a) < -0.2 };
-    });
-    const drawWeapon = ({ w, mp, a, far }) => {
+    const weapons = run.weapons.map((w, i) => ({ w, mp: mountPoint(run, i), a: w.aim ?? p.aim }));
+    const drawWeapon = ({ w, mp, a }) => {
       const def = WEAPONS[w.key];
       const lunge = w.swingT > 0 ? Math.sin((1 - w.swingT / (w.key === "fist" ? 0.16 : 0.1)) * Math.PI) * (w.key === "fist" ? 9 : 4) : 0;
-      const off = lunge - (w.kick || 0) + (far ? 6 : 0);
+      const off = lunge - (w.kick || 0);
       const frames = wspr[w.key] || wspr.autocannon;
       const fr = w.key === "chainblade" ? Math.floor(run.time * 24) % 2 : w.key === "pyre" ? (Math.random() < 0.5 ? 1 : 0) : 0;
       const ws = frames[fr % frames.length];
@@ -791,9 +802,9 @@ export function createRenderer(canvas) {
       if (dim) { g.globalAlpha = 0.65; g.drawImage(wdim[w.key][fr % frames.length], -1, -(ws.height >> 1)); g.globalAlpha = 1; }
       g.restore();
     };
-    for (const it of weapons) if (it.far) drawWeapon(it);
-    g.drawImage(spr, sx0, sy0);
-    for (const it of weapons) if (!it.far) drawWeapon(it);
+    composeMech(g, P, p, X, Y, fi,
+      () => { for (const it of weapons) if (it.mp.behind) drawWeapon(it); },
+      () => { for (const it of weapons) if (!it.mp.behind) drawWeapon(it); });
   }
 
   function drawCapacitor(run, X, Y) {

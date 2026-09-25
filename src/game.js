@@ -129,10 +129,27 @@ export function assignMounts(run) {
   });
   return out;
 }
-/** Where weapon `wi` sits on the mech (the chassis lists a point per hardpoint: hands, shoulders, back). */
+const FACINGS = ["right", "down", "left", "up"];
+/** Quantise an angle to a facing; keep the current one unless we're clearly past the diagonal. */
+export function facingOf(a, cur) {
+  const idx = (a2) => ((Math.round(a2 / (Math.PI / 2)) % 4) + 4) % 4;
+  if (cur) {
+    const c = FACINGS.indexOf(cur), centre = c * (Math.PI / 2);
+    const d = Math.abs(((a - centre + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    if (d < Math.PI / 4 + 0.18) return cur;
+  }
+  return FACINGS[idx(a)];
+}
+/** Where weapon `wi` sits on the mech, for the way the torso is facing. The chassis lists a point
+ *  per hardpoint for the front view (hands, shoulders, back); from behind they mirror, and in
+ *  profile they swing forward, the far side's tucked behind the body. behind: draw under the torso. */
 export function mountPoint(run, wi) {
   const p = run.player, hi = Math.max(0, run.mounts.indexOf(wi)), [dx, dy] = run.chassis.mounts[hi] || [0, -6];
-  return { x: p.x + dx, y: p.y + dy };
+  const f = p.facing || "down";
+  if (f === "down") return { x: p.x + dx, y: p.y + dy, behind: false };
+  if (f === "up") return { x: p.x - dx, y: p.y + dy, behind: true };
+  const s = f === "right" ? 1 : -1, near = s > 0 ? dx >= 0 : dx <= 0;
+  return { x: p.x + s * (2 + Math.abs(dx) * 0.3) - (near ? 0 : s), y: p.y + dy + (near ? 0 : -1), behind: !near };
 }
 /** Weapons a chassis can start with (a hardpoint of its family, or a universal one) */
 export const canMount = (chassis, family) => chassis.hardpoints.some((h) => h === "U" || HARDPOINT[h] === family);
@@ -321,6 +338,9 @@ export function update(run, dt, move) {
   // --- aim: face the nearest enemy, else the travel direction
   const nearest = nearestEnemy(run, 999);
   p.aim = nearest ? Math.atan2(nearest.y - p.y, nearest.x - p.x) : (p.moveAngle ?? 0);
+  // torso turns to the aim, legs to the movement: 4 facings each, sticky near the diagonals
+  p.facing = facingOf(p.aim, p.facing);
+  if (p.moving) p.legDir = facingOf(p.moveAngle, p.legDir);
 
   // --- ballistic + melee
   const offline = weaponsOffline(run);
@@ -336,7 +356,7 @@ export function update(run, dt, move) {
         const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
         if (!t) continue;
         const m = mountPoint(run, run.weapons.indexOf(w)), a0 = Math.atan2(t.y - p.y, t.x - p.x) + (rand() - 0.5) * 1.6;
-        run.missiles.push({ x: m.x, y: m.y + 4, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: 0,
+        run.missiles.push({ x: m.x, y: p.y, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: p.y - m.y, z0: p.y - m.y,
           dmg: weaponDmg(run, w), aoe: def.missile.aoe, speed: def.missile.speed });
         run.events.push({ type: "missile" });
         run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
@@ -348,13 +368,14 @@ export function update(run, dt, move) {
       const t = sightedEnemy(run, def.range * (1 + s.rangeMul));
       if (!t) continue;
       const base = Math.atan2(t.y - p.y, t.x - p.x), dmg = weaponDmg(run, w), flak = def.pellets > 1;
+      const m = mountPoint(run, run.weapons.indexOf(w)), ml = def.barrel + 1;
+      // rounds start at the barrel tip: ground position under it, flying at the weapon's height
+      const tipX = m.x + Math.cos(base) * ml, tipY = p.y + Math.sin(base) * ml, h = p.y - m.y;
       for (let i = 0; i < def.pellets; i++) {
         const a = base + (rand() - 0.5) * def.spread * (flak ? 1 : 2);
         const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
+        run.shots.push({ x: tipX, y: tipY, h, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
       }
-      const m = mountPoint(run, run.weapons.indexOf(w)), far = Math.sign(m.x - p.x) * Math.cos(base) < -0.2;
-      const ml = (flak ? 9 : 11) + (far ? 6 : 0);   // barrel tip (weapons across the body are pushed forward to clear it)
       run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.1 : 0.06, max: flak ? 0.1 : 0.06 });
       run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
       if (flak) for (let k = 0; k < 5; k++) {   // smoke from the barrel
@@ -383,7 +404,7 @@ export function update(run, dt, move) {
         igniteInArc(run, a, def.arc, reach + 4, def.buildingBurn);
         const m = mountPoint(run, run.weapons.indexOf(w));
         for (let k = 0; k < 7; k++) {
-          const fa = a + (rand() - 0.5) * def.arc, v = 80 + rand() * 80, tip = 7;
+          const fa = a + (rand() - 0.5) * def.arc, v = 80 + rand() * 80, tip = def.barrel;
           run.parts.push({ x: m.x + Math.cos(a) * tip, y: m.y + Math.sin(a) * tip, vx: Math.cos(fa) * v, vy: Math.sin(fa) * v, t: 0.18 + rand() * 0.16, max: 0.34, color: rand() < 0.35 ? "#fff1b0" : rand() < 0.6 ? "#ffb347" : "#e8602c", size: rand() < 0.4 ? 3 : 2, fire: true });
         }
         if (rand() < 0.5) run.parts.push({ x: p.x + Math.cos(a) * reach, y: p.y + Math.sin(a) * reach, vx: Math.cos(a) * 15, vy: -14, t: 0.8, max: 0.8, color: "#3a3230", size: 3, steam: true });
@@ -470,7 +491,7 @@ export function update(run, dt, move) {
       const sp = Math.hypot(sh.vx, sh.vy);
       hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
       sh.life = 0;
-      run.fx.push({ type: "impact", x: sh.x, y: sh.y, t: 0.07, max: 0.07 });
+      run.fx.push({ type: "impact", x: sh.x, y: sh.y - (sh.h ?? 4), t: 0.07, max: 0.07 });
       run.events.push({ type: "tink" });
       for (let i = 0; i < 3; i++) {
         const a = Math.atan2(-sh.vy, -sh.vx) + (rand() - 0.5) * 1.8, v = 40 + rand() * 60;
@@ -499,7 +520,7 @@ export function update(run, dt, move) {
 
   // --- missiles: climb, home on their target, burst
   for (const m of run.missiles) {
-    m.age += dt; m.z = Math.min(14, m.age * 50);
+    m.age += dt; m.z = Math.max(m.z0 || 0, Math.min(16, (m.z0 || 0) + m.age * 50));
     if (m.target && !m.target.dead) { m.tx = m.target.x; m.ty = m.target.y; }
     const dx = m.tx - m.x, dy = m.ty - m.y, d = Math.hypot(dx, dy) || 1, sp = Math.min(m.speed, 60 + m.age * 260);
     const k = Math.min(1, dt * 7);
@@ -741,11 +762,11 @@ function discharge(run, w, aim) {
   const rail = def.kind === "rail";
   for (const id of cut) damageBuilding(run.city, run.city.buildings[id], dmg * BUILDING_DMG.energy * (rail ? 0.7 : 1));
   const m = mountPoint(run, run.weapons.indexOf(w));
-  run.fx.push({ type: rail ? "rail" : "beam", x1: m.x + Math.cos(bestA) * 8, y1: m.y + Math.sin(bestA) * 8, x2: ex, y2: ey, w: def.width, t: rail ? 0.4 : 0.3, max: rail ? 0.4 : 0.3 });
+  run.fx.push({ type: rail ? "rail" : "beam", x1: m.x + Math.cos(bestA) * def.barrel, y1: m.y + Math.sin(bestA) * def.barrel, x2: ex, y2: ey - (p.y - m.y), w: def.width, t: rail ? 0.4 : 0.3, max: rail ? 0.4 : 0.3 });
   if (rail) {
     run.shake = Math.max(run.shake, 8);
     run.freeze = Math.max(run.freeze, 0.09);
-    run.fx.push({ type: "flare", x: m.x + Math.cos(bestA) * 10, y: m.y + Math.sin(bestA) * 10, t: 0.25, max: 0.25, color: "#e6d4ff" });
+    run.fx.push({ type: "flare", x: m.x + Math.cos(bestA) * def.barrel, y: m.y + Math.sin(bestA) * def.barrel, t: 0.25, max: 0.25, color: "#e6d4ff" });
     const rand = run.rand;
     for (let i = 0; i < 24; i++) {   // sparks shed along the slug's path
       const f = rand(), a = bestA + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 20 + rand() * 50;

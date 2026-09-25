@@ -77,6 +77,7 @@ const MECHS = {
     leg: { x: 4, w: 4, rows: [".o2o", "o21o", "o1o.", "o2o.", ".o2o", ".o2o"], lift: 3 },
     foot: { rows: ["ooooo", "o221o", "ooooo"], out: 1 },
     legY: 11,
+    side: { body: 8, head: [5, 3], pauldron: [6, 4], pack: [3, 5], arm: [3, 5], antenna: true },
   },
   warden: {   // medium: a balanced soldier
     w: 21, ramp: "steel", visor: ["#8f3e2c", "#d97757", "#ffc2a6"], glint: [[9, 2]], stripe: "#d97757",
@@ -100,6 +101,7 @@ const MECHS = {
     leg: { x: 6, w: 4, rows: ["o22o", "o21o", "o43o", "o32o", "o21o", "o21o"], lift: 3 },
     foot: { rows: ["oooooo", "o3322o", "oooooo"], out: 1 },
     legY: 14,
+    side: { body: 12, head: [6, 4], pauldron: [9, 5], pack: [4, 7], arm: [4, 7] },
   },
   bulwark: {   // heavy brawler: huge pauldrons, head sunk between them, stompy legs
     w: 25, ramp: "olive", visor: ["#3e5a1e", "#9acd5a", "#e4ffb8"], glint: [[11, 3]], stripe: "#e0a93b",
@@ -123,6 +125,7 @@ const MECHS = {
     leg: { x: 7, w: 5, rows: ["o222o", "o211o", "o443o", "o322o", "o211o"], lift: 2 },
     foot: { rows: ["ooooooo", "o33223o", "ooooooo"], out: 1 },
     legY: 14,
+    side: { body: 15, head: [6, 3], pauldron: [13, 6], pack: [4, 8], arm: [5, 7] },
   },
   tempest: {   // assault energy platform: capacitor coils rising behind the shoulders
     w: 23, ramp: "navy", visor: ["#1e5a73", "#6fd8ff", "#dff8ff"], glint: [[10, 3]], stripe: "#6fd8ff",
@@ -146,6 +149,7 @@ const MECHS = {
     leg: { x: 6, w: 4, rows: ["o22o", "o21o", "o43o", "o32o", "o22o", "o21o"], lift: 3 },
     foot: { rows: ["oooooo", "o3322o", "oooooo"], out: 1 },
     legY: 14,
+    side: { body: 12, head: [6, 4], pauldron: [9, 5], pack: [4, 7], arm: [4, 7], coils: true },
   },
 };
 RAMPS.steelRust = ["#2a2426", "#4f4446", "#7a6a64", "#a8927e", "#d8c4a8"];
@@ -188,6 +192,100 @@ export function mechFrames(kind, hot, ventPhase = 0, glow = false) {
   });
 }
 export const MECH_KINDS = Object.keys(MECHS);
+
+/** Parts for directional drawing (the torso turns to the aim, the legs to the movement):
+ *  torso: { front, back, side } (side faces right; mirror it for left)
+ *  legs: { front: [4 walk frames], side: [4 stride frames] }
+ *  legY: where the legs join the torso; torsoH/legsH: heights. glow: self-lit pixels only. */
+export function mechParts(kind, hot, ventPhase = 0, glow = false) {
+  const m = MECHS[kind] || MECHS.warden;
+  const vent = hot ? (ventPhase ? "#ffd27a" : "#ff8a4c") : "#20242c";
+  const p = pal(hot ? "hot" : m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff", s: hot ? "#ffb08f" : m.stripe });
+  const only = glow ? (hot ? "bcvqQ" : "bcqQ") : null;
+  const front = build(m.torso, p, { sym: true, light: true, patch: m.glint.map(([x, y]) => [x, y, "c"]), only });
+  // back: same outline, visor and cockpit become plating, a backpack over the spine
+  const backRows = m.torso.map((r) => r.replace(/[abc]/g, "2"));
+  const back = build(backRows, p, { sym: true, light: true, only: glow ? (hot ? "vqQ" : "qQ") : null });
+  if (!glow) {
+    const g = back.getContext("2d"), cx = m.w >> 1, sd = m.side, ph = sd.pack[1] + 1, top = 4;
+    g.fillStyle = OUTLINE; g.fillRect(cx - 3, top, 7, ph + 2);
+    g.fillStyle = p[2]; g.fillRect(cx - 2, top + 1, 5, ph);
+    g.fillStyle = p[3]; g.fillRect(cx - 2, top + 1, 5, 1);
+    g.fillStyle = hot ? p.v : OUTLINE; for (let y = top + 3; y < top + ph; y += 2) g.fillRect(cx - 1, y, 3, 1);
+  }
+  const side = sideTorso(m, p, hot, glow);
+  const legsFront = [[0, 0], [1, 0], [0, 0], [0, 1]].map(([l, r]) => (glow ? blank(m.w, 1) : build(legsRows(m, m.w, l, r), p)));
+  const legsSide = [0, 1, 0, -1].map((ph) => (glow ? blank(m.w, 1) : sideLegs(m, p, ph)));
+  return { torso: { front, back, side }, legs: { front: legsFront, side: legsSide }, legY: m.legY, w: m.w, legsH: m.leg.rows.length + m.foot.rows.length };
+}
+const blank = (w, h) => new OffscreenCanvas(w, h);
+
+// Side view, facing right, built from armoured boxes: backpack, body, head with the visor at the
+// front, the near pauldron with its stripe, the arm hanging in front, a waist joint.
+function sideTorso(m, p, hot, glow) {
+  const sd = m.side, H = m.torso.length, W = m.w, c = new OffscreenCanvas(W, H), g = c.getContext("2d");
+  const px = (col, x, y, w = 1, h = 1) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const box = (x, y, w, h, fill, light, dark) => {
+    if (glow) return;
+    px(OUTLINE, x, y, w, h); px(fill, x + 1, y + 1, w - 2, h - 2);
+    if (light) px(light, x + 1, y + 1, w - 2, 1);
+    if (dark) px(dark, x + w - 2, y + 2, 1, h - 3);
+  };
+  const cx = W >> 1, bw = sd.body, bx = cx - (bw >> 1) - 1, by = sd.head[1] - 1, bh = H - by - 1;
+  // back-mounted kit behind the body
+  box(bx - sd.pack[0] + 1, by + 1, sd.pack[0] + 1, sd.pack[1] + 1, p[2], p[3], p[1]);
+  if (sd.coils) for (const dx of [0, 2]) { const x = bx - sd.pack[0] + 1 + dx; px(OUTLINE, x, 0, 3, by + 2); px(p.q, x + 1, 1, 1, by); px(p.Q, x + 1, 2, 1, 1); }
+  if (sd.antenna && !glow) { px(OUTLINE, cx - 1, 0, 1, by + 1); }
+  box(bx, by, bw, bh - 2, p[3], p[4], p[2]);                                   // body
+  if (!glow) for (let y = by + 4; y < by + bh - 5; y += 2) px(hot ? p.v : p[2], bx + 2, y, 2, 1);   // side vents
+  if (glow && hot) for (let y = by + 4; y < by + bh - 5; y += 2) px(p.v, bx + 2, y, 2, 1);
+  box(bx + 1, H - 4, bw - 2, 4, p[2], p[3]);                                 // waist
+  const [hw, hh] = sd.head, hx = cx - (hw >> 1) + 1;
+  box(hx, 0 + (sd.coils ? 1 : 0), hw, hh + 1, p[3], p[4], p[2]);            // head
+  px(p.b, hx + hw - 3, 1 + (sd.coils ? 1 : 0) + (hh > 3 ? 1 : 0), 2, 1);        // visor, looking forward
+  px(p.c, hx + hw - 2, 1 + (sd.coils ? 1 : 0) + (hh > 3 ? 1 : 0), 1, 1);
+  const [pw, phh] = sd.pauldron, pxl = bx + ((bw - pw) >> 1);
+  box(pxl, by, pw, phh, p[4], p[5], p[2]);                                   // near pauldron
+  if (!glow) px(p.s, pxl + 1, by + phh - 2, pw - 2, 1);
+  const [aw, al] = sd.arm, ax = cx + (bw >> 2) - 1;
+  box(ax, by + phh - 1, aw + 1, al, p[3], p[4], p[2]);                       // arm
+  box(ax - 1, by + phh + al - 3, aw + 2, 3, p[2], p[4]);                     // hand
+  return c;
+}
+
+// Side-view legs: two jointed legs striding; the far one darker and drawn first. ph: -1..1 stride.
+function sideLegs(m, p, ph) {
+  const H = m.leg.rows.length + m.foot.rows.length, W = m.w, c = new OffscreenCanvas(W, H), g = c.getContext("2d");
+  const cx = W >> 1, thick = m.leg.w >= 5 ? 4 : m.w >= 21 ? 3 : 2, L1 = Math.round((H - 2) * 0.5), L2 = H - 2 - L1;
+  const seg = (x0, y0, x1, y1, col) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+    for (let i = 0; i <= n; i++) {
+      const x = Math.round(x0 + ((x1 - x0) * i) / n), y = Math.round(y0 + ((y1 - y0) * i) / n);
+      g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 1, thick + 2, 3);
+    }
+    for (let i = 0; i <= n; i++) {
+      const x = Math.round(x0 + ((x1 - x0) * i) / n), y = Math.round(y0 + ((y1 - y0) * i) / n);
+      g.fillStyle = col; g.fillRect(x, y, thick, 1);
+    }
+  };
+  const leg = (swing, near) => {
+    const a = swing * 0.5, hipX = cx - (thick >> 1) + (near ? 1 : -1), hipY = 0;
+    const kx = hipX + Math.sin(a) * L1, ky = hipY + Math.cos(a) * L1;
+    const bend = Math.max(0, -swing) * 0.5;                                  // trailing leg bends at the knee
+    const fx = kx + Math.sin(a - bend) * L2 - (swing < 0 ? 1 : 0), fy = H - 2;
+    const col = near ? p[3] : p[1], kneeCol = near ? p[4] : p[2];
+    seg(hipX, hipY, kx, ky, col);
+    seg(kx, ky, fx, fy, col);
+    g.fillStyle = OUTLINE; g.fillRect(Math.round(kx) - 1, Math.round(ky) - 1, thick + 2, 3);
+    g.fillStyle = kneeCol; g.fillRect(Math.round(kx), Math.round(ky), thick, 1);   // knee armour
+    const footW = m.foot.rows[0].length - 1;
+    g.fillStyle = OUTLINE; g.fillRect(Math.round(fx) - 2, fy - 1, footW + 2, 3);
+    g.fillStyle = near ? p[3] : p[1]; g.fillRect(Math.round(fx) - 1, fy, footW, 1);
+  };
+  leg(-ph, false);
+  leg(ph, true);
+  return c;
+}
 
 // ---------------------------------------------------------------- enemies
 const DRONE = [
