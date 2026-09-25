@@ -1,5 +1,5 @@
 // Adaptive chiptune score, synthesized live (no audio files). One clock drives everything: a
-// look-ahead scheduler places notes on a 16th-note grid at 104 BPM. The arrangement is a set of
+// look-ahead scheduler places notes on a 16th-note grid at 138 BPM. The arrangement is a set of
 // stems (pad, bass, drums, lead, arp, boss, stinger), each on its own gain, and the game only
 // moves those gains and asks for sections. Stems fade, sections change on 4-bar phrase
 // boundaries, stingers land on the next beat, so nothing ever cuts.
@@ -9,7 +9,7 @@
 
 import { onAudioReady } from "./audio.js";
 
-const BPM = 104, STEP = 60 / BPM / 4;   // seconds per 16th
+const BPM = 138, STEP = 60 / BPM / 4;   // seconds per 16th
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 
 // ---------------------------------------------------------------- harmony
@@ -158,15 +158,18 @@ function scheduleStep(G, S, t) {
   // bass: marching eighths (calm: half notes; boss: driving sixteenths)
   if (calm) { if (step === 0 || step === 8) note(G, st.bass, root - 12 + (step ? 7 : 0), t, STEP * 7, { wave: "tri", vol: 0.13, release: 0.2 }); }
   else if (boss) note(G, st.bass, root - 12 + (step % 4 === 3 ? 7 : step === 8 ? 12 : 0), t, STEP * 0.9, { wave: 0.5, vol: 0.07, cutoff: 700, release: 0.03 });
-  else if (step % 2 === 0) note(G, st.bass, root - 12 + [0, 0, 7, 0, 12, 0, 7, 0][step / 2], t, STEP * 1.6, { wave: 0.5, vol: 0.08, cutoff: 900, release: 0.04 });
+  else if (i > 0.5) {   // gallop: da-da-DUM on every beat
+    const b = step % 4;
+    if (b !== 3) note(G, st.bass, root - 12 + (b === 2 ? [0, 7, 12, 7][step >> 2] : 0), t, STEP * (b === 2 ? 1.7 : 0.8), { wave: 0.5, vol: b === 2 ? 0.085 : 0.06, cutoff: 950, release: 0.03 });
+  } else if (step % 2 === 0) note(G, st.bass, root - 12 + [0, 0, 7, 0, 12, 0, 7, 0][step / 2], t, STEP * 1.6, { wave: 0.5, vol: 0.08, cutoff: 900, release: 0.04 });
 
   // drums: marching snare, kick, hats; a roll into every phrase; heartbeat when hurt
   if (!calm) {
-    if (step === 0 || step === 8 || (i > 0.55 && (step === 6 || step === 10)) || (boss && (step === 3 || step === 11 || step === 14))) drum(G, st.drums, "kick", t);
+    if (step === 0 || step === 8 || (i > 0.5 && (step === 4 || step === 12)) || (i > 0.75 && step === 10) || (boss && (step === 3 || step === 11 || step === 14))) drum(G, st.drums, "kick", t);
     if (step === 4 || step === 12) drum(G, st.drums, "snare", t, 1);
     if (i > 0.5 && (step === 14 || step === 15 || step === 7)) drum(G, st.drums, "snare", t, 0.35);
     if (pos === 3 && step >= 12) drum(G, st.drums, "snare", t, 0.4 + (step - 12) * 0.15);
-    if (i < 0.3 ? step % 4 === 2 : i < 0.7 ? step % 2 === 0 : true) drum(G, st.drums, "hat", t, step % 4 === 2 ? 1 : 0.6);
+    if (i < 0.25 ? step % 4 === 2 : i < 0.45 ? step % 2 === 0 : true) drum(G, st.drums, "hat", t, step % 4 === 2 ? 1 : step % 2 ? 0.45 : 0.7);
     if (bar % 8 === 0 && step === 0 && i > 0.6) drum(G, st.drums, "crash", t, 0.7);
   }
   if (S.danger > 0.5 && (step === 0 || step === 3)) drum(G, st.drums, "heart", t, step ? 0.6 : 1);
@@ -179,9 +182,9 @@ function scheduleStep(G, S, t) {
     if (!calm) note(G, st.lead, m - 12, t, STEP * len * 0.92, { wave: 0.25, vol: 0.03, attack: 0.03, cutoff: 700, bright: 1800 });
   }
   // arp: high pulses on the chord tones (calm: a slow music box)
-  if (calm ? step % 2 === 0 : true) {
-    const tones = [0, iv[1], iv[2], 12, iv[2] + 12, iv[1] + 12], idx = calm ? (step / 2) % tones.length : [0, 1, 2, 3, 2, 1, 2, 4][step % 8];
-    note(G, st.arp, root + 24 + tones[idx % tones.length], t, STEP * (calm ? 1.8 : 0.7), { wave: calm ? "tri" : 0.125, vol: calm ? 0.035 : 0.028, release: calm ? 0.35 : 0.03 });
+  if (calm ? step % 4 === 0 : true) {
+    const tones = [0, iv[1], iv[2], 12, iv[2] + 12, iv[1] + 12], idx = calm ? (step / 4 + (S.pos % 2) * 2) % tones.length : [0, 1, 2, 3, 2, 1, 2, 4][step % 8];
+    note(G, st.arp, root + 24 + tones[idx % tones.length], t, STEP * (calm ? 3.5 : 0.7), { wave: calm ? "tri" : 0.125, vol: calm ? 0.035 : 0.028, release: calm ? 0.45 : 0.03 });
   }
   // boss: timpani and low brass stabs
   if (boss || S.targets.boss > 0) {
