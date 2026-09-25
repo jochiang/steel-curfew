@@ -23,6 +23,7 @@ if (params.has("sheet")) { (await import("./sheet.js")).drawSheet(canvas); throw
 const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);
+renderer.setZoom(getMeta().settings.zoom || "normal");
 
 if (params.has("unlockall")) unlockForSession();
 const saved = getMeta().settings;   // last choices, unless the URL says otherwise
@@ -155,4 +156,6 @@ window.__mech = { get run() { return run; }, get paused() { return paused; }, de
 if (params.has("go")) deploy(); else toTitle();
 window.__mech.resumeRun = resumeRun;
 window.__mech.music = musicState;
+window.__mech.renderer = renderer;
+addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
 requestAnimationFrame(frame);

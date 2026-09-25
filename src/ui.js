@@ -6,7 +6,7 @@ import {
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { musicEnabled, setMusicEnabled } from "./music.js";
 import { mechFrames } from "./art.js";
-import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary } from "./meta.js";
+import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary, saveSettings } from "./meta.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs, isIOS, standalone, supported as fsSupported } from "./fullscreen.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -17,6 +17,14 @@ const fmt = (n) => (Math.round(n * 10) / 10).toString();
 const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!isMuted()}">Sound: ${isMuted() ? "off" : "on"}</button>`
   + `<button class="ghost sound" data-music aria-pressed="${musicEnabled()}">Music: ${musicEnabled() ? "on" : "off"}</button>`;
 function toggleSound(b) { setMuted(!isMuted()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
+const ZOOM_ORDER = ["close", "normal", "wide"];
+const zoomBtn = () => `<button class="ghost sound" data-zoom>Zoom: ${getMeta().settings.zoom || "normal"}</button>`;
+function cycleZoom(b) {
+  const cur = getMeta().settings.zoom || "normal", next = ZOOM_ORDER[(ZOOM_ORDER.indexOf(cur) + 1) % ZOOM_ORDER.length];
+  saveSettings({ zoom: next });
+  dispatchEvent(new CustomEvent("mech:zoom", { detail: next }));
+  b.outerHTML = zoomBtn(); sfx("click");
+}
 function toggleMusic(b) { setMusicEnabled(!musicEnabled()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
 
 export function show(id) {
@@ -75,7 +83,7 @@ export function renderTitle(opts, onDeploy, onResume) {
       <label class="toggle"><input type="checkbox" data-unlockall ${meta.unlockAll ? "checked" : ""}> Unlock everything <em>(testing)</em></label>
       <button class="primary" data-deploy>Deploy</button>
       <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
-      <div class="title-foot">${soundBtn()}<button class="ghost fs-btn" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button></div>
+      <div class="title-foot">${soundBtn()}${zoomBtn()}<button class="ghost fs-btn" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button></div>
       ${isIOS() && !fsSupported() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
     </div>`;
   syncFs();
@@ -89,6 +97,7 @@ export function renderTitle(opts, onDeploy, onResume) {
     if (!b) return;
     if ("sound" in b.dataset) return toggleSound(b);
     if ("music" in b.dataset) return toggleMusic(b);
+    if ("zoom" in b.dataset) return cycleZoom(b);
     if ("fs" in b.dataset) { toggleFullscreen().then(() => renderTitle(opts, onDeploy, onResume)); return; }
     sfx("click");
     if ("resume" in b.dataset) return onResume();
@@ -287,12 +296,14 @@ export function renderPaused(run, onResume, onQuit) {
       <p class="sub">Wave ${run.wave + 1} · ${run.kills} wrecks</p>
       <button class="primary" data-resume>Resume</button>
       ${soundBtn()}
+      ${zoomBtn()}
       <button class="ghost" data-quit>Abandon run</button>
     </div>`;
   el.onclick = (e) => {
     const b = e.target.closest("button");
     if (b?.dataset.sound !== undefined) return toggleSound(b);
     if (b?.dataset.music !== undefined) return toggleMusic(b);
+    if (b?.dataset.zoom !== undefined) return cycleZoom(b);
     if (b?.dataset.resume !== undefined) onResume();
     if (b?.dataset.quit !== undefined) onQuit();
   };

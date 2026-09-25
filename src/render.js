@@ -5,7 +5,7 @@ import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, 
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 
-// The world is drawn into a small buffer (about 200 game px on the short side) and blown up by an
+// The world is drawn into a small buffer (about 180 game px on the short side by default) and blown up by an
 // integer factor, so pixels stay square. The camera moves smoothly: the buffer is drawn one pixel
 // oversized and the fractional camera offset is applied at blit time. Text and the touch stick are
 // drawn afterwards at native resolution.
@@ -13,7 +13,9 @@ import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./ci
 // Draw order: floor (+ scorch decals) -> floor lights (additive) -> telegraphs, salvage, shadows ->
 // bodies sorted by y -> projectiles and effects -> bloom (additive) -> vignette -> blit -> text/UI.
 
-const TARGET_SHORT = 200;
+// View size in game px along the screen's short side, per zoom setting. Scale is a whole number
+// of screen pixels per game pixel, so the art stays crisp; each setting is a distinct step.
+export const ZOOMS = { close: 150, normal: 180, wide: 210 };
 const SHOT_H = 4, BOLT_H = 5;   // projectiles fly at barrel height: drawn this far above their ground position
 const C = {
   void: "#0c0d12", energy: "#8fe3ff", ballistic: "#ffd36b", danger: "#ff5b4a", melee: "#f5e6da",
@@ -107,14 +109,14 @@ export function createRenderer(canvas) {
   const flames = [];            // renderer-only fire particles on wrecked and fallen buildings
   const burning = new Map();    // building id -> run.time when its rubble stops burning
 
-  let S = 1, vw = 0, vh = 0, dpr = 1, vig = null;
+  let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.normal;
   const cam = { x: ARENA.w / 2, y: ARENA.h / 2, init: false };
 
   function resize() {
     dpr = Math.min(3, window.devicePixelRatio || 1);
     const bw = Math.round(innerWidth * dpr), bh = Math.round(innerHeight * dpr);
     canvas.width = bw; canvas.height = bh;
-    S = Math.max(1, Math.round(Math.min(bw, bh) / TARGET_SHORT));
+    S = Math.max(1, Math.round(Math.min(bw, bh) / target));
     vw = Math.ceil(bw / S); vh = Math.ceil(bh / S);
     buf.width = vw + 2; buf.height = vh + 2;
     light.width = buf.width; light.height = buf.height;
@@ -706,5 +708,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  return { draw, resize, get scale() { return S; }, get view() { return { vw, vh }; } };
+  const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.normal; resize(); };
+  return { draw, resize, setZoom, get scale() { return S; }, get view() { return { vw, vh }; } };
 }
