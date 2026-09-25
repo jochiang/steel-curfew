@@ -394,7 +394,7 @@ export function update(run, dt, move) {
         const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
         run.shots.push({ x: tipX, y: tipY, h, air, slope, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
       }
-      run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.1 : 0.06, max: flak ? 0.1 : 0.06 });
+      run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.12 : 0.07, max: flak ? 0.12 : 0.07 });
       run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
       if (flak) for (let k = 0; k < 5; k++) {   // smoke from the barrel
         const sa = base + (rand() - 0.5) * 0.9, v = 20 + rand() * 30;

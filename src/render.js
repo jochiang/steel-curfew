@@ -37,6 +37,20 @@ function discPx(g, cx, cy, r) {
     g.fillRect(cx - half, cy + y, half * 2 + 1, 1);
   }
 }
+// a muzzle-flash spike: white at the root, then yellow, then an orange tip (w = 2 doubles the root)
+let spikeG = null;
+function spikeOn(g) { spikeG = g; }
+function spike(x, y, a, len, w = 1) {
+  const g = spikeG, ca = Math.cos(a), sa = Math.sin(a);
+  for (let s = 0; s <= len; s++) {
+    const f = s / Math.max(1, len), px = Math.round(x + ca * s), py = Math.round(y + sa * s);
+    g.fillStyle = f < 0.4 ? "#ffffff" : f < 0.75 ? "#ffe08a" : "#ff9a3a";
+    g.fillRect(px, py, 1, 1);
+    if (w > 1 && f < 0.5) g.fillRect(px + Math.round(-sa), py + Math.round(ca), 1, 1);
+  }
+}
+const mulberry = (seed) => { let t = (seed * 4294967296) >>> 0; return () => { t = (t + 0x6d2b79f5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; };
+
 function linePx(g, x0, y0, x1, y1) {
   x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
   const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
@@ -75,6 +89,7 @@ function vignette(w, h) {
 export function createRenderer(canvas) {
   const ctx = canvas.getContext("2d");
   const buf = new OffscreenCanvas(8, 8), g = buf.getContext("2d");
+  spikeOn(g);
   let floor = null, fg = null, floorCity = null;
   const bsprites = new Map();   // "id:stage" -> building sprite
   const props = propSprites();
@@ -247,7 +262,7 @@ export function createRenderer(canvas) {
       for (const f of run.fx) {
         const k = f.t / f.max;
         if (f.type === "boom" && k > 0.4) { const r = Math.round(f.r * 3); g.drawImage(glowOf(r, "#5a2a0e"), X(f.x) - r, Y(f.y) - r); }
-        if (f.type === "muzzle") g.drawImage(glowOf(10, "#4a3a12"), X(f.x) - 10, Y(f.y) - 10);
+        if (f.type === "muzzle") { const r = f.key === "flak" ? 30 : 20; g.drawImage(glowOf(r, k > 0.45 ? "#6a4c14" : "#3a2a0c"), X(f.x) - r, Y(f.y) - r); }
       }
       g.globalCompositeOperation = "source-over";
     }
@@ -458,20 +473,24 @@ export function createRenderer(canvas) {
         circlePx(g, X(f.x), Y(f.y - 3), f.reach - 1, f.a - spread / 2.6, f.a + spread / 2.6);
         if (f.heavy) circlePx(g, X(f.x), Y(f.y - 3), f.reach - 2, f.a - spread / 4, f.a + spread / 4);
       } else if (f.type === "muzzle") {
-        const x = X(f.x), y = Y(f.y), ca = Math.cos(f.a ?? 0), sa = Math.sin(f.a ?? 0);
-        if (f.key === "flak") {   // a cone of fire out of the muzzle
-          for (let n = 0; n < 16; n++) {
-            const d = Math.random() * 10 * k + 1, a = (f.a ?? 0) + (Math.random() - 0.5) * 0.9;
-            g.fillStyle = d < 4 ? "#ffffff" : d < 7 ? "#fff1b0" : "#ffb347";
-            g.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), d < 4 ? 2 : 1, d < 4 ? 2 : 1);
-          }
-        } else {   // autocannon: a star that alternates shape shot to shot
-          const big = Math.floor(run.time * 30) % 2;
-          g.fillStyle = "#fff6d6"; g.fillRect(x - 1, y - 1, 3, 3);
-          g.fillStyle = "#ffd36b";
-          g.fillRect(Math.round(x + ca * 3), Math.round(y + sa * 3), 2, 2);
-          if (big) { g.fillRect(x - 3, y, 7, 1); g.fillRect(x, y - 3, 1, 7); } else { g.fillRect(x - 2, y - 2, 1, 1); g.fillRect(x + 2, y - 2, 1, 1); g.fillRect(x - 2, y + 2, 1, 1); g.fillRect(x + 2, y + 2, 1, 1); }
+        // Verhoeven / Aliens: a jagged star that's different every shot (f.s), full on the first
+        // frames and a smaller stutter after, so sustained fire strobes
+        const x = X(f.x), y = Y(f.y), a = f.a ?? 0, flak = f.key === "flak";
+        if (f.s == null) f.s = Math.random();
+        const rs = mulberry(f.s), full = k > 0.45, sz = (flak ? 1.6 : 1) * (full ? 1 : 0.55);
+        if (flak) for (let n = 0; n < 34; n++) {   // the fireball cone
+          const d = Math.random() * 17 * k + 2, fa = a + (Math.random() - 0.5) * (0.5 + 0.6 * (1 - d / 19));
+          g.fillStyle = d < 6 ? "#ffffff" : d < 11 ? "#fff1b0" : d < 15 ? "#ffb347" : "#e8602c";
+          g.fillRect(Math.round(x + Math.cos(fa) * d), Math.round(y + Math.sin(fa) * d), d < 8 ? 2 : 1, d < 8 ? 2 : 1);
         }
+        spike(x, y, a + (rs() - 0.5) * 0.25, (7 + rs() * 5) * sz, 2);              // the long tongue
+        for (const side of [-1, 1]) {
+          spike(x, y, a + side * (0.8 + rs() * 0.5), (4 + rs() * 3.5) * sz, 1);    // muzzle-brake vents
+          if (rs() < 0.6) spike(x, y, a + side * (2.1 + rs() * 0.5), (2 + rs() * 2) * sz, 1);
+        }
+        const cr = full ? (flak ? 3 : 2) : 1;
+        g.fillStyle = "#ffe08a"; g.fillRect(x - cr - 1, y - cr, cr * 2 + 3, cr * 2 + 1); g.fillRect(x - cr, y - cr - 1, cr * 2 + 1, cr * 2 + 3);
+        g.fillStyle = "#ffffff"; g.fillRect(x - cr, y - cr, cr * 2 + 1, cr * 2 + 1);
       } else if (f.type === "impact") {
         const x = X(f.x), y = Y(f.y);
         g.fillStyle = "#ffffff"; g.fillRect(x - 1, y - 1, 3, 3);
@@ -536,7 +555,8 @@ export function createRenderer(canvas) {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 12), gl = glowOf(Math.round(7 * bloom), k > 0.5 ? "#3a2466" : "#1e1438"), r = gl.width >> 1;
         for (let i = 0; i <= n; i++) g.drawImage(gl, X(f.x1 + ((f.x2 - f.x1) * i) / n) - r, Y(f.y1 + ((f.y2 - f.y1) * i) / n) - r);
       } else if (f.type === "muzzle") {
-        const r = f.key === "flak" ? 9 : 6; g.drawImage(glowOf(r, "#5a4a1a"), X(f.x) - r, Y(f.y) - r);
+        const r = f.key === "flak" ? 22 : 13; g.drawImage(glowOf(r, k > 0.45 ? "#8a6420" : "#4a3410"), X(f.x) - r, Y(f.y) - r);
+        if (f.key === "flak" && k > 0.6) { g.fillStyle = "rgba(255, 190, 110, 0.07)"; g.fillRect(0, 0, buf.width, buf.height); }   // the whole street flinches
       } else if (f.type === "punch" && k > 0.6) {
         g.drawImage(glowOf(10, "#4a4438"), X(f.x) - 10, Y(f.y - 3) - 10);
       } else if (f.type === "boom" && k > 0.55) {
@@ -695,7 +715,7 @@ export function createRenderer(canvas) {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10);
         for (let i = 0; i <= n; i++) put(18 * (0.5 + k * 0.5), "#5a3a9a", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
       }
-      if (f.type === "muzzle") put(f.key === "flak" ? 34 : 22, f.key === "flak" ? "#a8803a" : "#8a7236", f.x, f.y);
+      if (f.type === "muzzle") put((f.key === "flak" ? 72 : 46) * (k > 0.45 ? 1 : 0.7), f.key === "flak" ? "#e8b060" : "#d0a050", f.x, f.y);
       else if (f.type === "impact") put(8, "#6a5a2a", f.x, f.y);
       else if (f.type === "punch") put(26 * k + 6, "#8a7a60", f.x, f.y);
       else if (f.type === "flare") put(30 * k + 6, "#6a4aa8", f.x, f.y);
