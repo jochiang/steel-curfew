@@ -40,7 +40,7 @@ let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = 
 
 function deploy() {
   if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
-  run = newRun({ seed: opts.seed ?? (Date.now() & 0xffffffff), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
+  run = newRun({ seed: opts.seed ?? (Date.now() >>> 0), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
   if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=6 is past curfew +1
   paused = false; acc = 0; shownPhase = "";
   input.reset();

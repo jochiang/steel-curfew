@@ -33,6 +33,8 @@ function near(x, y, r, fn) {
   for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) for (const e of grid[cy * COLS + cx]) fn(e);
 }
 
+const mod = (n, m) => ((n % m) + m) % m;
+
 // ---------------------------------------------------------------- run setup
 export const TIMES_OF_DAY = ["day", "dusk", "night"];
 // How dark it is at the start of each wave (0 = full day, 1 = night). Within a wave the light
@@ -234,7 +236,7 @@ export function update(run, dt, move) {
     const shift = Math.floor(pastCurfew(run.wave) / 3);   // past curfew the boss alternates with wave 5's
     for (let i = 0; i < (wave.bossCount || 1); i++) {
       const c = spawnPoint(run, 180);
-      run.marks.push({ ...c, t: 1.6 + i * 0.8, max: 1.6 + i * 0.8, type: types[(run.seed + shift + i) % types.length] });
+      run.marks.push({ ...c, t: 1.6 + i * 0.8, max: 1.6 + i * 0.8, type: types[mod(run.seed + shift + i, types.length)] });   // seeds can be negative (older saves): % alone gives -1
     }
     run.events.push({ type: "spawnBoss" });
     run.flashT = 0.6;   // lightning as it lands

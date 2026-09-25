@@ -11,7 +11,8 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 let ok = 0;
 for (let i = 0; i < RUNS; i++) {
   const r = mulberry32(9000 + i), ch = pick(r, Object.keys(CHASSIS));
-  const run = newRun({ seed: 9000 + i, chassis: ch, start: "autocannon", tod: pick(r, ["day", "dusk", "night", null]) });
+  const seed = (i % 2 ? -1 : 1) * (9000 + i);   // real seeds can be negative (a wave-5/8 crash hid there)
+  const run = newRun({ seed, chassis: ch, start: "autocannon", tod: pick(r, ["day", "dusk", "night", null]) });
   try {
     run.weapons.length = 0;
     const n = 1 + Math.floor(r() * run.chassis.hardpoints.length);
@@ -39,7 +40,7 @@ for (let i = 0; i < RUNS; i++) {
     ok++;
   } catch (e) {
     const key = e.message;
-    if (!seen.has(key)) seen.set(key, { count: 0, stack: e.stack.split("\n").slice(0, 6).join("\n"), example: { seed: 9000 + i, chassis: ch, wave: run.wave + 1, weapons: run.weapons.map((w) => w.key + w.tier), time: run.waveTime.toFixed(1) } });
+    if (!seen.has(key)) seen.set(key, { count: 0, stack: e.stack.split("\n").slice(0, 6).join("\n"), example: { seed, chassis: ch, wave: run.wave + 1, weapons: run.weapons.map((w) => w.key + w.tier), time: run.waveTime.toFixed(1) } });
     seen.get(key).count++;
   }
 }
