@@ -273,7 +273,8 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .fs svg { width: 18px; height: 18px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: square; }
 .fs .exit, .fs.on .enter { display: none; }
 .fs.on .exit { display: inline; }
-.title-foot { gap: 8px; }
+.title-foot { gap: 8px; flex-wrap: wrap; }
+.small-panel .sound { width: 100%; }
 .title-foot .fs-btn { min-width: 140px; }
 .ios-tip { margin: 10px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
 .pause i { width: 4px; height: 14px; background: var(--text); }

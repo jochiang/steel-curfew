@@ -3,11 +3,13 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, update, nextWave, startWave } from "./game.js";
+import { newRun, update, nextWave, startWave, darkness } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play } from "./audio.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs } from "./fullscreen.js";
+import { updateMusic, stinger, musicState } from "./music.js";
+import { WAVES } from "./content.js";
 import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
 // URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &ts=4 (time scale)
@@ -114,7 +116,13 @@ function frame(now) {
     if (steps > maxSteps) acc = 0;
     syncScreens();
   }
+  updateMusic(musicContext(), dt);
   if (run) {
+    for (const e of run.events) {   // musical punctuation for the big moments
+      if (e.type === "waveClear") stinger(run.wave >= WAVES.length - 1 ? "won" : "clear");
+      else if (e.type === "spawnBoss") stinger("boss");
+      else if (e.type === "dead") stinger("dead");
+    }
     play(run.events);
     renderer.draw(run, dt, input);
     if (run.phase === "combat") updateHud(run);
@@ -122,9 +130,29 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// What the score should be doing right now
+function musicContext() {
+  if (!run) return { mode: "title" };
+  if (run.phase === "hangar" || run.phase === "levelup") return { mode: "hangar" };
+  if (run.phase !== "combat") return { mode: "over" };
+  const p = run.player;
+  let near = 0, boss = false;
+  for (const e of run.enemies) {
+    if (e.d.boss) boss = true;
+    const d = Math.hypot(e.x - p.x, e.y - p.y);
+    if (d < 170) near += (e.d.boss ? 6 : e.d.mass >= 3 ? 3 : e.elite ? 2 : 1) * (d < 80 ? 1.5 : 1);
+  }
+  return {
+    mode: "combat", boss, paused, vent: run.cap.vent > 0, darkness: darkness(run),
+    threat: Math.min(1, near / 28 + run.wave * 0.08),
+    danger: p.hp / run.stats.maxHp < 0.35 ? 1 : 0,
+  };
+}
+
 // test hook
 window.__mech = { get run() { return run; }, get paused() { return paused; }, deploy, pause, resume, opts };
 
 if (params.has("go")) deploy(); else toTitle();
 window.__mech.resumeRun = resumeRun;
+window.__mech.music = musicState;
 requestAnimationFrame(frame);

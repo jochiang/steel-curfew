@@ -4,6 +4,7 @@ import {
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
+import { musicEnabled, setMusicEnabled } from "./music.js";
 import { mechFrames } from "./art.js";
 import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary } from "./meta.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs, isIOS, standalone, supported as fsSupported } from "./fullscreen.js";
@@ -13,8 +14,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const FAM = { ballistic: "Ballistic", energy: "Energy", melee: "Melee", module: "Module" };
 const fmt = (n) => (Math.round(n * 10) / 10).toString();
 
-const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!isMuted()}">Sound: ${isMuted() ? "off" : "on"}</button>`;
-function toggleSound(b) { setMuted(!isMuted()); b.outerHTML = soundBtn(); sfx("click"); }
+const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!isMuted()}">Sound: ${isMuted() ? "off" : "on"}</button>`
+  + `<button class="ghost sound" data-music aria-pressed="${musicEnabled()}">Music: ${musicEnabled() ? "on" : "off"}</button>`;
+function toggleSound(b) { setMuted(!isMuted()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
+function toggleMusic(b) { setMusicEnabled(!musicEnabled()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
 
 export function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
@@ -85,6 +88,7 @@ export function renderTitle(opts, onDeploy, onResume) {
     const b = e.target.closest("button");
     if (!b) return;
     if ("sound" in b.dataset) return toggleSound(b);
+    if ("music" in b.dataset) return toggleMusic(b);
     if ("fs" in b.dataset) { toggleFullscreen().then(() => renderTitle(opts, onDeploy, onResume)); return; }
     sfx("click");
     if ("resume" in b.dataset) return onResume();
@@ -288,6 +292,7 @@ export function renderPaused(run, onResume, onQuit) {
   el.onclick = (e) => {
     const b = e.target.closest("button");
     if (b?.dataset.sound !== undefined) return toggleSound(b);
+    if (b?.dataset.music !== undefined) return toggleMusic(b);
     if (b?.dataset.resume !== undefined) onResume();
     if (b?.dataset.quit !== undefined) onQuit();
   };

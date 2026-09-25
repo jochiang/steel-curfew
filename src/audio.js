@@ -2,7 +2,10 @@
 // play() drains them once per frame. Busy sounds (shots, hits, pickups) are rate-limited so a
 // crowded screen doesn't turn into a wall of noise.
 
-let ac = null, master = null, noise = null, muted = false;
+let ac = null, master = null, noise = null, muted = false, comp = null;
+const unlockHooks = [];
+/** Run fn(ac, out) once audio is unlocked (out = the shared compressor, for the music engine) */
+export function onAudioReady(fn) { if (ac) fn(ac, comp); else unlockHooks.push(fn); }
 try { muted = localStorage.getItem("mech.muted") === "1"; } catch {}
 
 export function unlock() {
@@ -11,12 +14,13 @@ export function unlock() {
     if (!AC) return;
     ac = new AC();
     master = ac.createGain(); master.gain.value = muted ? 0 : 0.55;
-    const comp = ac.createDynamicsCompressor();
+    comp = ac.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 6;
     master.connect(comp).connect(ac.destination);
     noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    for (const fn of unlockHooks.splice(0)) fn(ac, comp);
   }
   if (ac.state === "suspended") ac.resume();
 }
