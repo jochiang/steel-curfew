@@ -96,7 +96,12 @@ const SFX = {
   },
   hurt: () => gate("hurt", 120) && (tone("square", 150, 70, 0.16, 0.12), hiss(0.1, 0.1, { type: "lowpass", f0: 900 })),
   enemyShot: () => gate("eshot", 120) && tone("triangle", 420, 700, 0.08, 0.04),
-  spawnBoss: () => { tone("sawtooth", 70, 55, 1.2, 0.18, { attack: 0.08 }); tone("sawtooth", 105, 82, 1.2, 0.1, { attack: 0.08 }); },
+  spawnBoss: () => {
+    hiss(0.06, 0.2, { f0: 2500, q: 0.5 });                                                   // the crack...
+    hiss(2.2, 0.2, { type: "lowpass", f0: 400, f1: 60, attack: 0.12, when: 0.05, hold: 0.4 });   // ...and the rolling thunder
+    tone("sine", 45, 30, 2, 0.25, { attack: 0.1, when: 0.05 });
+    tone("sawtooth", 70, 55, 1.2, 0.16, { attack: 0.08, when: 0.5 }); tone("sawtooth", 105, 82, 1.2, 0.09, { attack: 0.08, when: 0.5 });
+  },
   waveStart: () => { tone("triangle", 440, 440, 0.08, 0.08); tone("triangle", 660, 660, 0.12, 0.08, { when: 0.09 }); },
   waveClear: () => [523, 659, 784, 1047].forEach((f, i) => tone("triangle", f, f, 0.14, 0.08, { when: i * 0.07 })),
   dead: () => { tone("sawtooth", 300, 40, 1.1, 0.16); hiss(0.9, 0.12, { type: "lowpass", f0: 1500, f1: 80 }); },

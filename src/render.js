@@ -1,5 +1,5 @@
 import { ARENA, ENEMIES, WEAPONS } from "./content.js";
-import { weaponsOffline, mountPoint } from "./game.js";
+import { weaponsOffline, mountPoint, darkness } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
@@ -159,12 +159,16 @@ export function createRenderer(canvas) {
     return bsprites.get(k);
   }
 
-  // Time of day: ambient colour the scene is multiplied by (null = full daylight, no light map)
-  const TOD = {
-    day: null,
-    dusk: { ambient: "#9a7c86", vig: 1 },
-    night: { ambient: "#1c2439", vig: 2 },
-  };
+  // Ambient light by darkness d (0 day .. 1 night): the colour the scene is multiplied by.
+  const AMBIENT = [[0, [255, 255, 255]], [0.3, [240, 216, 188]], [0.52, [196, 146, 132]], [0.76, [92, 90, 132]], [1, [28, 36, 57]]];
+  function ambientAt(d) {
+    let i = 0;
+    while (i < AMBIENT.length - 2 && d > AMBIENT[i + 1][0]) i++;
+    const [d0, c0] = AMBIENT[i], [d1, c1] = AMBIENT[i + 1], f = Math.max(0, Math.min(1, (d - d0) / (d1 - d0)));
+    return "rgb(" + c0.map((v, k) => Math.round(v + (c1[k] - v) * f)).join(",") + ")";
+  }
+  // things switch on at their own moment as it gets dark, staggered so a street doesn't blink on at once
+  const onAt = (d, from, key) => d > from + (((key * 2654435761) >>> 0) % 1000) / 1000 * 0.1;
 
   // Drifting fog: two tiled layers blown across the city on a per-run wind. Drawn before the light
   // map, so at night it only shows where something lights it (haze around lamps, signs, beams).
@@ -179,14 +183,21 @@ export function createRenderer(canvas) {
     if (!fogs.has(k)) fogs.set(k, fogTexture(FOG[tod].color, 256, layer ? 91 : 7, FOG[tod].alpha * (layer ? 0.7 : 1)));
     return fogs.get(k);
   };
-  function drawFog(run, left, top, t) {
-    const tod = FOG[run.tod] ? run.tod : "day", a = ((run.seed % 628) / 100), wx = Math.cos(a), wy = Math.sin(a) * 0.5;
-    for (let layer = 0; layer < 2; layer++) {
-      const tex = fogOf(tod, layer), sp = layer ? 11 : 6.5, par = layer ? 1.15 : 1;
-      // world-anchored (with a little parallax on the top layer), drifting with the wind
-      const ox = -(((left * par + wx * sp * t) % 256) + 256) % 256, oy = -(((top * par + wy * sp * t) % 256) + 256) % 256;
-      for (let y = oy; y < buf.height; y += 256) for (let x = ox; x < buf.width; x += 256) g.drawImage(tex, Math.round(x), Math.round(y));
+  function drawFog(run, left, top, t, d) {
+    const a = ((run.seed % 628) / 100), wx = Math.cos(a), wy = Math.sin(a) * 0.5;
+    // cross-fade between the day, dusk and night fogs as the light changes
+    const mix = d <= 0.52 ? [["day", 1 - d / 0.52], ["dusk", d / 0.52]] : [["dusk", 1 - (d - 0.52) / 0.48], ["night", (d - 0.52) / 0.48]];
+    for (const [tod, w] of mix) {
+      if (w < 0.03) continue;
+      g.globalAlpha = w;
+      for (let layer = 0; layer < 2; layer++) {
+        const tex = fogOf(tod, layer), sp = layer ? 11 : 6.5, par = layer ? 1.15 : 1;
+        // world-anchored (with a little parallax on the top layer), drifting with the wind
+        const ox = -(((left * par + wx * sp * t) % 256) + 256) % 256, oy = -(((top * par + wy * sp * t) % 256) + 256) % 256;
+        for (let y = oy; y < buf.height; y += 256) for (let x = ox; x < buf.width; x += 256) g.drawImage(tex, Math.round(x), Math.round(y));
+      }
     }
+    g.globalAlpha = 1;
   }
 
   function draw(run, dt, input) {
@@ -198,7 +209,9 @@ export function createRenderer(canvas) {
     const li = Math.floor(left), ti = Math.floor(top), fx = left - li, fy = top - ti;
     const ox = -li + 1, oy = -ti + 1;   // world -> buffer offset (integer)
     const X = (v) => Math.round(v + ox), Y = (v) => Math.round(v + oy);
-    const t = run.time, p = run.player, city = run.city, tod = TOD[run.tod] || null, night = !!tod;
+    const t = run.time, p = run.player, city = run.city, d = darkness(run);
+    const lit = d > 0.06, night = d > 0.5;   // lit: use the light map; night: windows and signs are on
+    const tod = { ambient: ambientAt(d), vig: 1 + Math.round(d), d };
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
     g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
@@ -206,7 +219,7 @@ export function createRenderer(canvas) {
     g.drawImage(floor, ox, oy);
 
     // ---- daylight: a few soft floor glows (at night the light map does this job)
-    if (!night) {
+    if (!lit) {
       g.globalCompositeOperation = "lighter";
       g.drawImage(glowOf(34, run.cap.vent > 0 ? "#3a1a10" : "#18233a"), X(p.x) - 34, Y(p.y) - 30);
       for (const b of run.bolts) g.drawImage(glowOf(8, "#4a1c0c"), X(b.x) - 8, Y(b.y) - 8);
@@ -314,10 +327,10 @@ export function createRenderer(canvas) {
     }
     g.globalAlpha = 1;
 
-    drawFog(run, left, top, t);
+    drawFog(run, left, top, t, d);
 
     // ---- night / dusk: multiply the scene by a light map
-    if (night) {
+    if (lit) {
       drawLightMap(run, tod, X, Y, t, shown, inView);
       g.globalCompositeOperation = "multiply";
       g.drawImage(light, 0, 0);
@@ -406,7 +419,7 @@ export function createRenderer(canvas) {
           g.fillStyle = "#ffd27a"; discPx(g, x - 1, y - 1, r * 0.6);
         } else {
           // smoke: a dithered ring that thins out and drifts up
-          g.fillStyle = night ? (e < 0.7 ? "#2a2226" : "#17151c") : e < 0.7 ? "#4a3a3a" : "#2a2530";
+          g.fillStyle = d > 0.6 ? (e < 0.7 ? "#2a2226" : "#17151c") : e < 0.7 ? "#4a3a3a" : "#2a2530";
           const rr = Math.round(r);
           for (let yy = -rr; yy <= rr; yy++) for (let xx = -rr; xx <= rr; xx++) {
             const d = Math.hypot(xx, yy);
@@ -427,7 +440,7 @@ export function createRenderer(canvas) {
 
     // ---- bloom
     g.globalCompositeOperation = "lighter";
-    const bloom = night ? 1.6 : 1;
+    const bloom = 1 + 0.6 * d;
     for (const f of run.fx) {
       const k = f.t / f.max;
       if (f.type === "beam") {
@@ -449,7 +462,7 @@ export function createRenderer(canvas) {
       g.drawImage(glowOf(r, "#0f3346"), X(p.x) - r, Y(p.y) - 3 - r);
     }
     g.globalCompositeOperation = "source-over";
-    for (let i = 0; i < (tod ? tod.vig : 1); i++) g.drawImage(vig, 0, 0);
+    for (let i = 0; i < tod.vig; i++) g.drawImage(vig, 0, 0);
 
     // ---- blit to screen
     ctx.imageSmoothingEnabled = false;
@@ -468,6 +481,10 @@ export function createRenderer(canvas) {
       ctx.fillStyle = tx.big ? "#9fe8ff" : tx.n >= 40 ? C.energy : "#f4f1ea"; ctx.fillText(tx.n, x, y);
     }
     ctx.globalAlpha = 1;
+    if (run.flashT > 0) {   // boss lightning
+      const k = run.flashT / 0.6, flick = k > 0.75 || (k > 0.45 && k < 0.6) ? 1 : 0.35;
+      ctx.fillStyle = `rgba(225,232,255,${k * 0.55 * flick})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     if (p.hurt > 0) {
       const gr = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.35, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.75);
       gr.addColorStop(0, "rgba(255,60,40,0)"); gr.addColorStop(1, `rgba(255,60,40,${(p.hurt / 0.3) * 0.35})`);
@@ -488,6 +505,17 @@ export function createRenderer(canvas) {
     flames.push({ x: x + (Math.random() - 0.5) * 3, y, vy: 10 + Math.random() * 14, t: 0.35 + Math.random() * 0.4, max: 0.75, ph: Math.random() * 6 });
   }
 
+  // A banded searchlight wedge into the light map (3 hard steps, so it stays pixel-art)
+  function cone(x, y, a, R, spread, col) {
+    const c = parseInt(col.slice(1), 16), step = (k) => "rgb(" + [c >> 16, (c >> 8) & 255, c & 255].map((v) => Math.round(v * k)).join(",") + ")";
+    lg.save();
+    lg.beginPath(); lg.moveTo(x, y); lg.arc(x, y, R, a - spread, a + spread); lg.closePath(); lg.clip();
+    const grad = lg.createRadialGradient(x, y, 4, x, y, R);
+    for (const [o, k] of [[0, 1], [0.35, 1], [0.35, 0.69], [0.65, 0.69], [0.65, 0.375], [1, 0.375]]) grad.addColorStop(o, step(k));
+    lg.fillStyle = grad; lg.fillRect(x - R, y - R, R * 2, R * 2);
+    lg.restore();
+  }
+
   // The light map: ambient colour, plus every light source added on top. The scene is multiplied
   // by it, so white = full brightness. Self-lit pixels (windows, eyes, visor) are painted white.
   function drawLightMap(run, tod, X, Y, t, shown, inView) {
@@ -500,23 +528,18 @@ export function createRenderer(canvas) {
     // the mech: a halo, and a searchlight that tracks what it's aiming at
     const venting = run.cap.vent > 0;
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
-    const a = p.aim, R = 96, spread = 0.42;
-    lg.save();
-    lg.beginPath(); lg.moveTo(X(p.x), Y(p.y - 4)); lg.arc(X(p.x), Y(p.y - 4), R, a - spread, a + spread); lg.closePath(); lg.clip();
-    const grad = lg.createRadialGradient(X(p.x), Y(p.y - 4), 4, X(p.x), Y(p.y - 4), R);
-    for (const [o, c] of [[0, "#b8b0a0"], [0.35, "#b8b0a0"], [0.35, "#7f796d"], [0.65, "#7f796d"], [0.65, "#45423b"], [1, "#45423b"]]) grad.addColorStop(o, c);
-    lg.fillStyle = grad; lg.fillRect(X(p.x) - R, Y(p.y - 4) - R, R * 2, R * 2);
-    lg.restore();
+    cone(X(p.x), Y(p.y - 4), p.aim, 96, 0.42, "#b8b0a0");
     if (venting) put(14, "#7a3818", p.x, p.y - 4);
 
-    // street lamps and parked cars with their lights on
+    // street lamps and parked cars with their lights on (each switches on at its own moment)
+    const d = tod.d;
     for (const pr of city.props) {
       if (pr.broken || !inView(pr.x - 40, pr.y - 40, pr.x + 40, pr.y + 40)) continue;
-      if (pr.type === "lamp") {
+      if (pr.type === "lamp" && onAt(d, 0.42, pr.x * 7 + pr.y)) {
         put(32, "#5a4c32", pr.x, pr.y + 4);
         put(14, "#3c3322", pr.x, pr.y + 2);
         put(4, "#ffffff", pr.x, pr.y - 9);
-      } else if (pr.type === "car" && pr.lights) {
+      } else if (pr.type === "car" && pr.lights && onAt(d, 0.58, pr.x + pr.y * 3)) {
         const fx = pr.dir ? pr.face : 0, fy = pr.dir ? 0 : pr.face;
         put(16, "#4a4632", pr.x + fx * 16, pr.y + fy * 16);
         put(3, "#ffffff", pr.x + fx * 5, pr.y + fy * 5);
@@ -529,7 +552,7 @@ export function createRenderer(canvas) {
       lg.drawImage(spr.glow, bx, by);
       const sx = (b.x + b.w / 2) * TILE, sy = (b.y + b.h) * TILE + 7;
       if (spr.lit) put(8 + b.w * 3 + spr.lit * 0.4, "#2c2618", sx, sy);
-      if (b.neon && stageOf(b) < 2) {
+      if (b.neon && stageOf(b) < 2 && onAt(d, 0.44, b.id)) {
         const c = NEON[b.neon.color], dim = "#" + [1, 3, 5].map((i) => Math.round(parseInt(c.slice(i, i + 2), 16) * 0.3).toString(16).padStart(2, "0")).join("");
         put(18, dim, b.x * TILE + 3 + b.neon.at * (b.w * TILE - 6), sy);
       }
@@ -542,6 +565,20 @@ export function createRenderer(canvas) {
       const spr = set.glow[fi], bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
       lg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
       put(e.d.boss ? 30 : e.type === "spitter" ? 12 : 7, e.type === "spitter" ? "#1f3a12" : "#3a1410", e.x, e.y);
+    }
+    // bosses bring their own light: the Siege Walker sweeps searchlights, the Crusher's headlights find you
+    for (const e of run.enemies) {
+      if (!e.d.boss) continue;
+      if (e.type === "siege") {
+        const a = t * 0.9 + e.ph * 6;
+        cone(X(e.x), Y(e.y - 12), a, 130, 0.22, "#8a8470"); cone(X(e.x), Y(e.y - 12), a + Math.PI, 130, 0.22, "#8a8470");
+        put(24, "#4a3a2a", e.x, e.y);
+      } else {
+        const a = Math.atan2(p.y - e.y, p.x - e.x);
+        cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a - 0.15, 110, 0.18, "#9a8a60");
+        cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a + 0.15, 110, 0.18, "#9a8a60");
+        put(44 + Math.random() * 4, "#7a3410", e.x, e.y);
+      }
     }
     // the mech's visor (and grilles when venting)
     const mg = mechSet(run.chassisKey).glow, gset = venting ? (Math.floor(t * 10) % 2 ? mg.hotA : mg.hotB) : mg.cold;

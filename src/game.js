@@ -34,11 +34,23 @@ function near(x, y, r, fn) {
 
 // ---------------------------------------------------------------- run setup
 export const TIMES_OF_DAY = ["day", "dusk", "night"];
+// How dark it is at the start of each wave (0 = full day, 1 = night). Within a wave the light
+// fades towards the next key, so the last wave (the boss) is fought in the dark.
+export const DUSK_KEYS = [0, 0.3, 0.52, 0.76, 1];
+export function darkness(run) {
+  if (run.tod === "day") return 0;
+  if (run.tod === "dusk") return 0.55;
+  if (run.tod === "night") return 1;
+  const last = DUSK_KEYS.length - 1, w = Math.min(run.wave, last);
+  if (w >= last) return 1;
+  const f = Math.min(1, run.waveTime / WAVES[w].duration);
+  return DUSK_KEYS[w] + (DUSK_KEYS[w + 1] - DUSK_KEYS[w]) * f;
+}
+export const timeLabel = (d) => (d < 0.15 ? "day" : d < 0.4 ? "afternoon" : d < 0.62 ? "dusk" : d < 0.9 ? "twilight" : "night");
 export function newRun({ seed = Date.now(), chassis = "warden", start = "autocannon", ventMode = "all", targeting = "crowd", tod = null, allowed = null } = {}) {
-  const todRoll = mulberry32((seed ^ 0x51ed27) >>> 0)();   // own stream, so it doesn't shift the game's rng
   const run = {
     rand: mulberry32(seed), seed, ventMode, targeting,
-    tod: TIMES_OF_DAY.includes(tod) ? tod : todRoll < 0.4 ? "day" : todRoll < 0.62 ? "dusk" : "night",
+    tod: TIMES_OF_DAY.includes(tod) ? tod : "cycle",   // "cycle": the day wears on as the waves go (?tod= fixes it)
     chassisKey: CHASSIS[chassis] ? chassis : "warden", chassis: CHASSIS[chassis] || CHASSIS.warden,
     phase: "combat", wave: 0, time: 0, waveTime: 0,
     salvage: 0, kills: 0,
@@ -193,6 +205,7 @@ export function update(run, dt, move) {
     const c = spawnPoint(run, 180);
     run.marks.push({ ...c, t: 1.6, max: 1.6, type: Array.isArray(wave.boss) ? wave.boss[run.seed % wave.boss.length] : wave.boss });
     run.events.push({ type: "spawnBoss" });
+    run.flashT = 0.6;   // lightning as it lands
   }
   for (const m of run.marks) {
     if ((m.t -= dt) > 0) continue;
@@ -769,6 +782,7 @@ function tickFx(run, dt) {
   for (const t of run.texts) { t.y -= 18 * dt; t.t -= dt; }
   run.texts = run.texts.filter((t) => t.t > 0);
   run.shake = Math.max(0, run.shake - dt * 20);
+  if (run.flashT > 0) run.flashT = Math.max(0, run.flashT - dt);
 }
 
 function tickPickups(run, dt) {

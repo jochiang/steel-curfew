@@ -1,6 +1,6 @@
 import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul } from "./content.js";
 import {
-  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits,
+  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits, darkness, timeLabel,
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
 } from "./game.js";
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
@@ -335,7 +335,7 @@ export function updateHud(run) {
   const left = Math.max(0, Math.ceil(WAVES[run.wave].duration - run.waveTime));
   set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
   const banner = run.clearing > 0 ? (run.wave >= WAVES.length - 1 ? "Arena cleared" : "Wave cleared")
-    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}${run.tod === "day" ? "" : ` · ${run.tod}`}` : "";
+    : run.waveTime < 1.6 ? `Wave ${run.wave + 1}${darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}` : "";
   set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
   set("boss", !!boss, (v) => (hud.boss.hidden = !v));
