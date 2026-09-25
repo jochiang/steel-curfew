@@ -38,6 +38,17 @@ const HP_LABEL = { E: "Energy", B: "Ballistic", M: "Melee", U: "Universal" };
 const hpChips = (list) => list.map((h) => `<i class="hp-chip hp-${h}" title="${HP_LABEL[h]} hardpoint">${h}</i>`).join("");
 const statBar = (v, max) => `<span class="sbar"><i style="width:${Math.round(Math.min(1, v / max) * 100)}%"></i></span>`;
 
+/** The last error the game saved (see reportError in main.js), so a freeze can be reported after a reload */
+function lastErrorBox() {
+  let e = null;
+  try { e = JSON.parse(localStorage.getItem("mech.lastError")); } catch {}
+  if (!e) return "";
+  const when = new Date(e.at), ago = Math.round((Date.now() - when) / 60000);
+  const bits = [`wave ${e.wave ?? "-"}${e.waveTime != null ? ` at ${e.waveTime}s` : ""}`, e.phase, [e.chassis, (e.weapons || []).join(",")].filter(Boolean).join(" "), e.enemies != null && `${e.enemies} enemies`];
+  const text = `${e.msg}${e.count > 1 ? ` (x${e.count})` : ""} · ${bits.filter(Boolean).join(" · ")}${e.stack ? "\n" + e.stack : ""}`;
+  return `<div class="lasterr"><b>Last error</b> (${ago < 90 ? ago + " min" : Math.round(ago / 60) + " h"} ago). Send this to get it fixed:<code>${esc(text)}</code><button class="ghost" data-copyerr>Copy</button><button class="ghost" data-clearerr>Dismiss</button></div>`;
+}
+
 export function renderTitle(opts, onDeploy, onResume) {
   const el = $("#title"), meta = getMeta(), car = meta.career, resume = savedRunSummary();
   if (!isUnlocked("chassis", opts.chassis)) opts.chassis = "warden";
@@ -70,6 +81,7 @@ export function renderTitle(opts, onDeploy, onResume) {
     <div class="panel title-panel">
       <div class="title-head"><h1>STEEL<span>CURFEW</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
       <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` (+${car.bestCurfew} past curfew)` : ""} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
+      ${lastErrorBox()}
       ${resume ? `<button class="resume" data-resume>Resume run <span>${resume.curfew ? `past curfew +${resume.curfew}` : `wave ${resume.wave}`} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>
       <div class="frames">${frames}</div>
@@ -84,6 +96,12 @@ export function renderTitle(opts, onDeploy, onResume) {
       ${isIOS() && !fsSupported() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
     </div>`;
   syncFs();
+  const le = el.querySelector(".lasterr");
+  if (le) le.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if ("copyerr" in b.dataset) { const text = localStorage.getItem("mech.lastError") || ""; navigator.clipboard?.writeText(text).then(() => (b.textContent = "Copied"), () => (b.textContent = "Copy failed: select the text")); }
+    if ("clearerr" in b.dataset) { try { localStorage.removeItem("mech.lastError"); } catch {} le.remove(); }
+  };
   el.querySelector("[data-unlockall]").onchange = (e) => { setUnlockAll(e.target.checked); renderTitle(opts, onDeploy, onResume); };
   for (const cv of el.querySelectorAll(".frame-art")) {
     const f = mechFrames(cv.dataset.art, false)[0], g = cv.getContext("2d");

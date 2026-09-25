@@ -111,20 +111,26 @@ if (!BOT) {
 
 // One bad frame must never freeze the game: the next frame is always scheduled first, and an
 // error is reported on screen (once per message) while the loop carries on.
-const seenErrors = new Set();
+// The bar stays until tapped (a freeze would otherwise hide the only clue), and the title screen shows
+// the saved error with a Copy button. `count` says whether it happened once or on every frame.
+const seenErrors = new Map();
 function reportError(err) {
   const msg = String(err?.message || err);
+  const seen = seenErrors.get(msg);
+  if (seen) {   // a repeat: just count it (every 60th, so an error on every frame doesn't hammer storage)
+    if (++seen.count % 60 === 0 || seen.count < 5) { try { localStorage.setItem("mech.lastError", JSON.stringify(seen)); } catch {} }
+    return;
+  }
   console.error(err);
-  if (seenErrors.has(msg)) return;
-  seenErrors.add(msg);
-  const info = { msg, stack: String(err?.stack || "").split("\n").slice(0, 6).join("\n"), at: new Date().toISOString(),
-    wave: run ? run.wave + 1 : null, phase: run?.phase, chassis: run?.chassisKey, weapons: run?.weapons.map((w) => w.key) };
+  const info = { msg, count: 1, stack: String(err?.stack || "").split("\n").slice(0, 8).join("\n"), at: new Date().toISOString(),
+    wave: run ? run.wave + 1 : null, waveTime: run ? +run.waveTime.toFixed(1) : null, phase: run?.phase, chassis: run?.chassisKey,
+    weapons: run?.weapons.map((w) => w.key + w.tier), enemies: run?.enemies.length, ua: navigator.userAgent };
+  seenErrors.set(msg, info);
   try { localStorage.setItem("mech.lastError", JSON.stringify(info)); } catch {}
   let el = document.getElementById("errbar");
-  if (!el) { el = document.createElement("div"); el.id = "errbar"; document.body.appendChild(el); }
-  el.textContent = `Something went wrong (the game kept going): ${msg} · wave ${info.wave ?? "-"}`;
+  if (!el) { el = document.createElement("div"); el.id = "errbar"; el.onclick = () => { el.hidden = true; }; document.body.appendChild(el); }
+  el.textContent = `Something went wrong: ${msg} · wave ${info.wave ?? "-"} (tap to hide; it's saved on the title screen)`;
   el.hidden = false;
-  setTimeout(() => { el.hidden = true; }, 12000);
 }
 
 let lastFrameAt = performance.now(), simSeen = { t: -1, at: 0 };
