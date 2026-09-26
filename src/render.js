@@ -302,6 +302,7 @@ export function createRenderer(canvas) {
     const t = run.time, p = run.player, city = run.city, d = darkness(run);
     const lit = d > 0.06, night = d > 0.5;   // lit: use the light map; night: windows and signs are on
     const storm = tickWeather(run, dt, d, left, top);   // rain + lightning (render-only)
+    const lightsOn = lightsPower(run, d);
     const tod = { ambient: storm.flash > 0 ? mixRgb(ambientAt(d), [196, 206, 240], storm.flash * 0.85) : ambientAt(d), vig: 1, d };   // one vignette pass: a second one hid enemies coming in from the edges
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
@@ -327,7 +328,7 @@ export function createRenderer(canvas) {
     // ---- daylight: a few soft floor glows (at night the light map does this job)
     if (!lit) {
       g.globalCompositeOperation = "lighter";
-      { const rc = rockColor(run), st = LIGHT_STYLE[run.chassisKey] || LIGHT_STYLE.warden;   // rock lights, by day
+      if (lightsOn) { const rc = rockColor(run), st = LIGHT_STYLE[run.chassisKey] || LIGHT_STYLE.warden;   // rock lights, by day
         g.drawImage(glowOf(20, rc === st.rock ? st.day : rc === "#2a8ab0" ? "#0e3444" : "#3a0c06"), X(p.x) - 20, Y(p.y + 8) - 20); }
       for (const b of run.bolts) g.drawImage(glowOf(8, "#4a1c0c"), X(b.x) - 8, Y(b.y) - 8);
       for (const f of run.fx) {
@@ -754,6 +755,18 @@ export function createRenderer(canvas) {
     bulwark: { rock: "#9a7418", day: "#342606" },
     tempest: { rock: "#5a3aa8", day: "#1c1238" },
   };
+  // The package stays off by day and powers up at dusk (user: "the lighting probably should only turn on
+  // at dusk ... makes that first level in the dark more visually compelling"): a stutter, then solid,
+  // with a relay clunk. A run that starts or resumes in the dark flickers on straight away.
+  const LIGHTS_ON_AT = 0.52;   // wave 3 (the dusk wave) starts exactly here and wave 2 only reaches it as it ends, so the rigs power up as wave 3 begins
+  const power = { run: null, on: false, since: 0, lit: false };
+  function lightsPower(run, d) {
+    if (power.run !== run) { power.run = run; power.on = false; }
+    if (!(d > LIGHTS_ON_AT)) { power.on = false; return (power.lit = false); }
+    if (!power.on) { power.on = true; power.since = run.time; run.events.push({ type: "lightsOn" }); }
+    const age = run.time - power.since;
+    return (power.lit = age > 0.55 || age < 0.07 || (age > 0.19 && age < 0.25) || (age > 0.36 && age < 0.44));   // on, off, on, off, on... solid
+  }
   function rockColor(run) {
     if (run.cap.vent > 0) return Math.floor(run.time * 8) % 2 ? "#9a2410" : "#3a0c06";
     if (run.cap.charge >= 1 && run.weapons.some((w) => WEAPONS[w.key].family === "energy")) return "#2a8ab0";
@@ -815,10 +828,12 @@ export function createRenderer(canvas) {
     // the mech: a halo, and a searchlight that tracks what it's aiming at
     const venting = run.cap.vent > 0;
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
-    cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
-    cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
+    if (power.lit) {
+      cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
+      cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
+    }
     if (weather.bolt) put(70, "#7a8ad0", weather.bolt.x, weather.bolt.y);   // the strike lights up the block it hits
-    {   // the frame's light package (see mechLights)
+    if (power.lit) {   // the frame's light package (see mechLights)
       const L = mechLights(run, t);
       for (const c of L.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);
       for (const l of L.lights) put(l.r, l.col, l.x, l.y);
@@ -1027,11 +1042,13 @@ export function createRenderer(canvas) {
     composeMech(g, P, p, X, Y, fi,
       () => { for (const it of weapons) if (it.mp.behind) drawWeapon(it); },
       () => { for (const it of weapons) if (!it.mp.behind) drawWeapon(it); });
-    const L = mechLights(run, t);   // the light package, on top of the torso
-    for (const q of L.px) { g.fillStyle = q.col; g.fillRect(X(q.x), Y(q.y), 1, 1); }
-    g.globalCompositeOperation = "lighter";
-    for (const q of L.px) if (q.lit) g.drawImage(glowOf(3, "#3a3428"), X(q.x) - 3, Y(q.y) - 3);
-    g.globalCompositeOperation = "source-over";
+    const L = mechLights(run, t), on = power.lit;   // the light package, on top of the torso
+    for (const q of L.px) { g.fillStyle = on || !q.lit ? q.col : "#3a3e48"; g.fillRect(X(q.x), Y(q.y), 1, 1); }   // off: dark glass
+    if (on) {
+      g.globalCompositeOperation = "lighter";
+      for (const q of L.px) if (q.lit) g.drawImage(glowOf(3, "#3a3428"), X(q.x) - 3, Y(q.y) - 3);
+      g.globalCompositeOperation = "source-over";
+    }
   }
 
   function drawCapacitor(run, X, Y) {

@@ -106,6 +106,10 @@ const SFX = {
   },
   hurt: () => gate("hurt", 120) && (tone("square", 150, 70, 0.16, 0.12), hiss(0.1, 0.1, { type: "lowpass", f0: 900 })),
   enemyShot: () => gate("eshot", 120) && tone("triangle", 420, 700, 0.08, 0.04),
+  lightsOn: () => {   // relays clunking closed, then the rigs hum up
+    tone("square", 90, 60, 0.05, 0.08); tone("square", 110, 70, 0.05, 0.07, { when: 0.19 }); tone("square", 95, 65, 0.05, 0.07, { when: 0.36 });
+    tone("sawtooth", 60, 120, 0.5, 0.03, { attack: 0.1, when: 0.4 });
+  },
   thunder: (e) => {   // near strikes crack; far ones only roll
     const near = e.near ?? 0.5, w = e.when ?? 0.5;
     if (near > 0.45) hiss(0.08, 0.1 + near * 0.12, { f0: 2200, q: 0.5, when: w });
