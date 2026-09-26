@@ -260,7 +260,8 @@ export function createRenderer(canvas) {
     // ---- daylight: a few soft floor glows (at night the light map does this job)
     if (!lit) {
       g.globalCompositeOperation = "lighter";
-      g.drawImage(glowOf(34, run.cap.vent > 0 ? "#3a1a10" : "#18233a"), X(p.x) - 34, Y(p.y) - 30);
+      { const rc = rockColor(run), st = LIGHT_STYLE[run.chassisKey] || LIGHT_STYLE.warden;   // rock lights, by day
+        g.drawImage(glowOf(20, rc === st.rock ? st.day : rc === "#2a8ab0" ? "#0e3444" : "#3a0c06"), X(p.x) - 20, Y(p.y + 8) - 20); }
       for (const b of run.bolts) g.drawImage(glowOf(8, "#4a1c0c"), X(b.x) - 8, Y(b.y) - 8);
       for (const f of run.fx) {
         const k = f.t / f.max;
@@ -313,7 +314,6 @@ export function createRenderer(canvas) {
     }
     for (const m of run.missiles) g.drawImage(shadow(3), X(m.x) - 1, Y(m.y));
     { const sw = run.chassis.radius * 2; g.drawImage(shadow(sw), X(p.x) - (sw >> 1), Y(p.y) + 8); }
-    for (const l of runningLights(run, t)) { g.fillStyle = l.col; g.fillRect(X(l.x), Y(l.y), 1, 1); }   // on the street round its feet; the legs hide the back ones
     g.fillStyle = "rgba(5,6,10,0.4)";
     for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
     for (const s of run.shots) g.fillRect(X(s.x), Y(s.y), 1, 1);
@@ -668,23 +668,69 @@ export function createRenderer(canvas) {
     g.globalAlpha = sun.alpha; g.drawImage(shade.c, ox, oy); g.globalAlpha = 1;
   }
 
-  // ---- running lights: a ring of lamps on the street round the mech's feet that show its state.
-  // Amber chase = normal, all cyan = capacitor charged and holding, blinking red = venting.
-  const RING = 14;
-  function runningLights(run, t) {
-    const p = run.player, rx = run.chassis.radius + 10, ry = 7, cy = p.y + 8, out = [];
-    const venting = run.cap.vent > 0, held = !venting && run.cap.charge >= 1 && run.weapons.some((w) => WEAPONS[w.key].family === "energy");
-    const lead = Math.floor(t * 12) % RING, blink = Math.floor(t * 8) % 2;
-    for (let i = 0; i < RING; i++) {
-      const a = (i / RING) * Math.PI * 2, x = p.x + Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
-      if (venting) out.push({ x, y, col: blink ? "#ff5a3c" : "#5a1a10", glow: blink ? "#7a2010" : "#200806", bright: !!blink });
-      else if (held) out.push({ x, y, col: "#bff4ff", glow: "#2a86aa", bright: i % 2 === blink });
-      else {
-        const trail = (lead - i + RING) % RING, on = trail === 0, warm = trail <= 2;
-        out.push({ x, y, col: on ? "#fff1c8" : warm ? "#ffb347" : "#9a6a2c", glow: on ? "#b08030" : warm ? "#6a4818" : "#2e200c", bright: on });
+  // ---- light packages (user: "a Jeep owner who has seen too many overlanding videos on Instagram and
+  // has gone too hard on lights at Pep Boys", then "each mech has a distinctive lighting style"):
+  //   Warden  - overlander: roof light bar with amber strobe ends, ditch-light pods, twin spears
+  //   Kestrel - street tuner: halo headlights, neon underglow, one long narrow spot
+  //   Bulwark - road crew: rotating amber beacon sweeping the street, a row of work lights, huge flood
+  //   Tempest - gaming PC: a chest strip that fills with the capacitor, blue shoulder strobes, flood
+  //             that brightens with the charge
+  // Rock lights under the feet carry the state for every frame: its own colour normally, cyan when
+  // the capacitor is charged and holding, blinking red while venting.
+  // Returns sprite pixels (px, lit ones glow), point lights and cones, all in world coordinates.
+  const LIGHT_STYLE = {
+    warden: { rock: "#a0661c", day: "#3a2408" },
+    kestrel: { rock: "#9a2a8a", day: "#360c30" },
+    bulwark: { rock: "#9a7418", day: "#342606" },
+    tempest: { rock: "#5a3aa8", day: "#1c1238" },
+  };
+  function rockColor(run) {
+    if (run.cap.vent > 0) return Math.floor(run.time * 8) % 2 ? "#9a2410" : "#3a0c06";
+    if (run.cap.charge >= 1 && run.weapons.some((w) => WEAPONS[w.key].family === "energy")) return "#2a8ab0";
+    return (LIGHT_STYLE[run.chassisKey] || LIGHT_STYLE.warden).rock;
+  }
+  function mechLights(run, t) {
+    const p = run.player, kind = run.chassisKey, P = mechSet(kind).cold, H = P.legY + P.legsH + 1, half = P.w >> 1;
+    const fi = p.moving ? Math.floor(t * 9) % 4 : 0, top = p.y + 10 - H + (p.moving && fi === 2 ? 1 : 0);
+    const face = p.facing || "down", front = face === "down", back = face === "up", side = !front && !back, dir = face === "left" ? -1 : 1;
+    const px = [], lights = [], cones = [], a = p.aim, dot = (x, y, col, lit) => px.push({ x, y, col, lit });
+    const venting = run.cap.vent > 0;
+    if (kind === "kestrel") {
+      const eyes = front ? [-2, 2] : side ? [dir * 2] : [];
+      for (const ex of eyes) { dot(p.x + ex, top + 1, "#e0f8ff", true); dot(p.x + ex + (ex < 0 ? -1 : 1), top + 1, "#7fd8ff", true); }
+      if (back) { dot(p.x - 2, top + 1, "#ff3a4a", true); dot(p.x + 2, top + 1, "#ff3a4a", true); }   // tail lights
+      cones.push({ y: top + 1, a, R: 160, spread: 0.13, col: "#8ab0c8" });
+      lights.push({ x: p.x, y: p.y + 8, r: 40, col: "#5a1a52" });   // the underglow spills wide
+    } else if (kind === "bulwark") {
+      const ba = t * 5, facing = Math.cos(ba) > 0;   // the beacon's mirror goes round
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(p.x - 1 + dx, top - 3 + dy, facing ? "#ffc040" : "#8a5a10", facing);
+      dot(p.x - 1, top - 1, "#16181e"); dot(p.x, top - 1, "#16181e");
+      cones.push({ y: top - 2, a: ba, R: 110, spread: 0.3, col: "#a0600c" });   // sweeps the street all the way round
+      if (!back) for (const wx of front ? [-(half - 1), -(half - 3), half - 3, half - 1] : [dir * (half - 1), dir * (half - 3)]) dot(p.x + wx, top + 2, "#fff4d0", true);
+      cones.push({ y: top + 2, a, R: 104, spread: 1.15, col: "#7a7260" });
+    } else if (kind === "tempest") {
+      const n = 7, lit = venting ? n : Math.round(n * run.cap.charge), sx = front ? -3 : side ? (dir > 0 ? 0 : -6) : null;
+      if (sx !== null) for (let i = 0; i < n; i++) dot(p.x + sx + i, top + 5, venting ? (Math.floor(t * 8) % 2 ? "#ff5a3c" : "#5a1a10") : i < lit ? "#bff4ff" : "#1a3a4a", venting || i < lit);
+      const blue = Math.floor(t * 6) % 2;
+      for (const s of front || back ? [-1, 1] : [dir]) { const on = (s < 0) === !!blue; dot(p.x + s * (half - 1), top + 1, on ? "#6ab4ff" : "#1a2a4a", on); if (on) lights.push({ x: p.x + s * (half - 1), y: top + 1, r: 22, col: "#1a3a8a" }); }
+      const k = 0.5 + 0.5 * (venting ? 0 : run.cap.charge);
+      cones.push({ y: top + 4, a, R: 100 + 30 * k, spread: 0.6, col: k > 0.9 ? "#6a8ab0" : "#4a5a7a" });
+    } else {   // warden
+      const strobe = Math.floor(t * 8) % 4;
+      const span = front || back ? [-4, 4] : [-2, 3];
+      for (let i = span[0]; i <= span[1]; i++) {
+        const x = p.x + (side ? dir * i : i), end = side ? i === -2 : Math.abs(i) === 4;
+        dot(x, top - 2, "#16181e");
+        if (end) { const on = side ? strobe % 2 === 0 : strobe === (i < 0 ? 0 : 2); dot(x, top - 1, on ? "#ffb020" : "#6a4410", on); if (on) lights.push({ x, y: top - 1, r: 26, col: "#b06a10" }); }
+        else dot(x, top - 1, back ? "#16181e" : "#ffffff", !back);
       }
+      if (!back) for (const s of front ? [-1, 1] : [dir]) dot(p.x + s * (half - 1), top + 3, "#fff6d6", true);
+      cones.push({ y: top - 1, a, R: 116, spread: 0.78, col: "#6a665a" });
+      for (const s of [-1, 1]) cones.push({ y: top + 3, a: a + s * 0.62, R: 108, spread: 0.12, col: "#8a8474" });
     }
-    return out;
+    const rc = rockColor(run);
+    lights.push({ x: p.x, y: p.y + 8, r: 30, col: rc }, { x: p.x, y: p.y + 8, r: 14, col: rc });
+    return { px, lights, cones };
   }
 
   // The light map: ambient colour, plus every light source added on top. The scene is multiplied
@@ -701,7 +747,13 @@ export function createRenderer(canvas) {
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
     cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
     cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
-    for (const l of runningLights(run, t)) { put(l.bright ? 14 : 7, l.glow, l.x, l.y); lg.fillStyle = "#ffffff"; lg.fillRect(X(l.x), Y(l.y), 1, 1); }
+    {   // the frame's light package (see mechLights)
+      const L = mechLights(run, t);
+      for (const c of L.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);
+      for (const l of L.lights) put(l.r, l.col, l.x, l.y);
+      lg.fillStyle = "#ffffff";
+      for (const q of L.px) if (q.lit) lg.fillRect(X(q.x), Y(q.y), 1, 1);
+    }
     if (venting) put(14, "#7a3818", p.x, p.y - 4);
 
     // street lamps and parked cars with their lights on (each switches on at its own moment)
@@ -904,12 +956,17 @@ export function createRenderer(canvas) {
     composeMech(g, P, p, X, Y, fi,
       () => { for (const it of weapons) if (it.mp.behind) drawWeapon(it); },
       () => { for (const it of weapons) if (!it.mp.behind) drawWeapon(it); });
+    const L = mechLights(run, t);   // the light package, on top of the torso
+    for (const q of L.px) { g.fillStyle = q.col; g.fillRect(X(q.x), Y(q.y), 1, 1); }
+    g.globalCompositeOperation = "lighter";
+    for (const q of L.px) if (q.lit) g.drawImage(glowOf(3, "#3a3428"), X(q.x) - 3, Y(q.y) - 3);
+    g.globalCompositeOperation = "source-over";
   }
 
   function drawCapacitor(run, X, Y) {
     const cap = run.cap, p = run.player;
     if (!run.weapons.some((w) => WEAPONS[w.key].family === "energy")) return;
-    const x = X(p.x) - 9, y = Y(p.y) + 18, w = 19;   // below the running lights
+    const x = X(p.x) - 9, y = Y(p.y) + 13, w = 19;
     g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 1, w + 2, 4);
     if (cap.vent > 0) {
       const k = cap.vent / cap.ventMax;
