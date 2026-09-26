@@ -24,7 +24,7 @@ if (params.has("sheet2")) { (await import("./sheet2.js")).drawSheet2(canvas); th
 const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);
-renderer.setZoom(getMeta().settings.zoom || "normal");
+renderer.setZoom(getMeta().settings.zoom || "close");
 
 if (params.has("unlockall")) unlockForSession();
 const saved = getMeta().settings;   // last choices, unless the URL says otherwise

@@ -20,9 +20,9 @@ const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!
   + `<button class="ghost sound" data-music aria-pressed="${musicEnabled()}">Music: ${musicEnabled() ? "on" : "off"}</button>`;
 function toggleSound(b) { setMuted(!isMuted()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
 const ZOOM_ORDER = ["close", "normal", "wide"];
-const zoomBtn = () => `<button class="ghost sound" data-zoom>Zoom: ${getMeta().settings.zoom || "normal"}</button>`;
+const zoomBtn = () => `<button class="ghost sound" data-zoom>Zoom: ${getMeta().settings.zoom || "close"}</button>`;
 function cycleZoom(b) {
-  const cur = getMeta().settings.zoom || "normal", next = ZOOM_ORDER[(ZOOM_ORDER.indexOf(cur) + 1) % ZOOM_ORDER.length];
+  const cur = getMeta().settings.zoom || "close", next = ZOOM_ORDER[(ZOOM_ORDER.indexOf(cur) + 1) % ZOOM_ORDER.length];
   saveSettings({ zoom: next });
   dispatchEvent(new CustomEvent("mech:zoom", { detail: next }));
   b.outerHTML = zoomBtn(); sfx("click");

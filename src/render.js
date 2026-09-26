@@ -129,7 +129,7 @@ export function createRenderer(canvas) {
   const wdim = Object.fromEntries(Object.entries(wspr).map(([k, fr]) => [k, fr.map((f) => flash(f, "#2a1c1a"))]));
   const burning = new Map();    // building id -> run.time when its rubble stops burning
 
-  let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.normal;
+  let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.close;
   const cam = { x: ARENA.w / 2, y: ARENA.h / 2, init: false };
 
   function resize() {
@@ -1068,6 +1068,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.normal; resize(); };
+  const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.close; resize(); };
   return { draw, resize, setZoom, get scale() { return S; }, get view() { return { vw, vh }; } };
 }
