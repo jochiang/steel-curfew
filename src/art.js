@@ -328,6 +328,31 @@ const WASP = [
   ["w.....", "ww..oo", ".wwo43", "..o43E", "...o22", "....o1", "......"],
   ["......", "....oo", "...o43", "wwo43E", "www.22", "w...o1", "......"],
 ];
+// Gunship (boss): top-down attack helicopter, stub wings with rocket pods and nav lights. The rotor is
+// drawn by the renderer (real rotation), not baked into the sprite.
+const GUNSHIP = [
+  "..............o",
+  ".............o4",
+  "............o4E",
+  "............o3E",
+  "............o3E",
+  "............o43",
+  "............o43",
+  "...ooooooo..o43",
+  "..o5444443oooo3",
+  ".oL4kkkkk3o4433",
+  ".o54kkkkk3o3332",
+  ".o432222221o332",
+  "..ooooooooo3322",
+  "...........ov21",
+  "...........ov21",
+  "............o21",
+  "............o21",
+  "............o21",
+  "..........ooo21",
+  ".........o54321",
+  "..........ooooo",
+];
 // Siege Walker (boss): four-legged artillery platform with a big mortar on its back
 const SIEGE = [
   "..............o",
@@ -364,6 +389,7 @@ export function enemyFrames(type, glow = false, elite = false) {
     case "wasp": return WASP.map((f) => build(f, pal("teal", { w: "#bfe8e8", E: "#fff4c2" }), o("E")));
     case "siege": return [0, 1].map((k) => build(SIEGE, pal("steelRust", { ...EYE, E: k ? "#fff0c0" : "#ffb070" }), o("eE")));
     case "drone": return [build(DRONE, pal("rust", EYE), o("eE"))];
+    case "gunship": return [build(GUNSHIP, pal("steel", { E: "#ffe9a0", L: "#ff3b2e", k: "#15131b", v: "#ff9a4c" }), o("ELv"))];
     case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), o("E")));
     case "brute": return [build(BRUTE, pal("violet", EYE), o("eE"))];
     case "spitter": return [0, 1].map((k) => build(SPITTER, pal("moss", { g: k ? "#b7f07a" : "#8fd65e", G: k ? "#f2ffc4" : "#d8ff9a", e: "#1c3a22", E: "#e8ffd0", M: "#0f1f14" }), o("gGE")));

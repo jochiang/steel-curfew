@@ -162,6 +162,9 @@ export const ENEMIES = {
   wasp:    { name: "Wasp",        hp: 8,  speed: 66, dmg: 5,  r: 4,  salvage: 1, color: "#6fbfb0", flying: true },
   siege:   { name: "Siege Walker", hp: 590, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
              keepAway: 90, barrageEvery: 5, barrage: 5, deployEvery: 8, deploy: 3, shell: { flight: 1.5, radius: 24, dmg: 16, building: 60 } },
+  gunship: { name: "Gunship",     hp: 440, speed: 82, dmg: 0, r: 14, salvage: 45, color: "#5a6878", mass: 20, boss: true, flying: true, alt: 20,
+             gunship: { every: 6, runSpeed: 150, fireEvery: 0.1, boltSpeed: 120, boltDmg: 5, rearmEvery: 2, rearm: 3.2, lowAlt: 7 },
+             barrageEvery: 6, barrage: 4, shell: { flight: 1.0, radius: 18, dmg: 12, building: 45 } },
   crusher: { name: "Crusher",     hp: 460, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
              burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
 };
@@ -172,7 +175,7 @@ export const WAVES = [
   { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1], ["wasp", 1]] },
   { duration: 30, interval: 1.7, group: 4, pool: [["drone", 6], ["skitter", 2], ["brute", 1], ["sapper", 1]] },
   { duration: 35, interval: 1.4, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["wasp", 1]] },
-  { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege"] },
+  { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege", "gunship"] },
 ];
 // Past curfew (endless, optional after the wave-5 boss): each wave past the table is the last one,
 // with enemy HP x1.2 and spawns x1.1 compounding, and a boss every 3rd wave (both bosses from +9).

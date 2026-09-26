@@ -89,6 +89,7 @@ const SFX = {
     hiss(0.05, 0.22, { f0: 5000, q: 0.6 }); hiss(0.35, 0.12, { f0: 2600, f1: 900, q: 2, when: 0.02 });
     tone("sawtooth", 120, 60, 0.3, 0.07, { when: 0.02 }); tone("square", 1800, 600, 0.12, 0.03);
   },
+  strafe: () => { hiss(1.1, 0.1, { type: "bandpass", f0: 300, f1: 900, q: 1.2, attack: 0.3 }); tone("sawtooth", 55, 80, 1.0, 0.06, { attack: 0.3 }); },
   overheat: () => { hiss(0.9, 0.12, { type: "highpass", f0: 2500, attack: 0.02 }); tone("square", 180, 90, 0.12, 0.07); },
   reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
   casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),

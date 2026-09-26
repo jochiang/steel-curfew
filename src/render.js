@@ -1,5 +1,5 @@
 import { ARENA, ENEMIES, WEAPONS, FLY_ALT } from "./content.js";
-import { weaponsOffline, mountPoint, darkness, rainAt } from "./game.js";
+import { weaponsOffline, mountPoint, darkness, rainAt, altOf } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
@@ -424,7 +424,18 @@ export function createRenderer(canvas) {
       else drawShot(o, X, Y);
     }
     // airborne: flyers, missiles and shells are above the rooftops
-    for (const e of run.enemies) if (e.d.flying) drawEnemy(e, t, X, Y, false, FLY_ALT);
+    for (const e of run.enemies) if (e.d.flying) {
+      const alt = altOf(e);
+      drawEnemy(e, t, X, Y, false, alt);
+      if (e.type === "gunship") {   // rotor: two blades really turning, blurred to a disc
+        const hx = X(e.x), hy = Y(e.y) - alt - 6, ra = t * 31;
+        g.globalAlpha = 0.35; g.fillStyle = "#c8d0dc";
+        for (let k = 0; k < 3; k++) { const a = ra - k * 0.18; linePx(g, hx - Math.cos(a) * 19, hy - Math.sin(a) * 10, hx + Math.cos(a) * 19, hy + Math.sin(a) * 10); }
+        g.globalAlpha = 0.8; g.fillStyle = "#e6edf3";
+        linePx(g, hx - Math.cos(ra) * 19, hy - Math.sin(ra) * 10, hx + Math.cos(ra) * 19, hy + Math.sin(ra) * 10);
+        g.globalAlpha = 1; g.fillStyle = "#15131b"; g.fillRect(hx - 1, hy - 1, 2, 2);
+      }
+    }
     for (const s of run.shots) if (s.air) drawShot(s, X, Y);
     for (const m of run.missiles) {
       const x = X(m.x), y = Y(m.y - m.z), a = Math.atan2(m.vy, m.vx);
@@ -887,13 +898,17 @@ export function createRenderer(canvas) {
       const set = enemies[e.type], n = set.glow.length;
       const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
       const spr = set.glow[fi], bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
-      lg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
+      lg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob - (e.d.flying ? altOf(e) : 0));
       put(e.d.boss ? 30 : e.type === "spitter" ? 12 : 7, e.type === "spitter" ? "#1f3a12" : "#3a1410", e.x, e.y);
     }
     // bosses bring their own light: the Siege Walker sweeps searchlights, the Crusher's headlights find you
     for (const e of run.enemies) {
       if (!e.d.boss) continue;
-      if (e.type === "siege") {
+      if (e.type === "gunship") {   // hunts you with a searchlight: a narrow beam and a pool of light on the mech
+        const hy = e.y - altOf(e), a = Math.atan2(p.y + 4 - hy, p.x - e.x);
+        cone(X(e.x), Y(hy), a, Math.hypot(p.x - e.x, p.y + 4 - hy) + 26, 0.1, "#b8b29a");
+        put(24, "#8a8468", p.x, p.y + 6);
+      } else if (e.type === "siege") {
         const a = t * 0.9 + e.ph * 6;
         cone(X(e.x), Y(e.y - 12), a, 130, 0.22, "#8a8470"); cone(X(e.x), Y(e.y - 12), a + Math.PI, 130, 0.22, "#8a8470");
         put(24, "#4a3a2a", e.x, e.y);

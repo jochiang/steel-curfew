@@ -112,6 +112,9 @@ export function startWave(run) {
 }
 
 // ---------------------------------------------------------------- hardpoints
+/** How high a flyer is right now (the Gunship drops low to rearm) */
+export const altOf = (e) => e.alt ?? e.d.alt ?? FLY_ALT;
+
 /** Can the loadout (plus one more weapon of `extra` family) be fitted into the chassis's hardpoints?
  *  Family slots first, universal slots take the overflow. */
 export function fits(run, extra = null) {
@@ -265,7 +268,34 @@ export function update(run, dt, move) {
     const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
     let mx = dx / dist, my = dy / dist;
     const lobber = d.lobEvery || d.barrageEvery;
-    if (d.flying) { /* straight at the mech, over everything */ }
+    if (d.gunship) {   // circles at range, strafes straight over the mech, and every other run sets down low to rearm (the window)
+      const D = d.gunship, G = e.gs || (e.gs = { mode: "orbit", t: D.every * 0.6, ang: Math.atan2(-dy, -dx), fire: 0, runs: 0 });
+      const toward = (tx, ty) => { const ox = tx - e.x, oy = ty - e.y, ol = Math.hypot(ox, oy) || 1, k = Math.min(1, ol / 20); mx = (ox / ol) * k; my = (oy / ol) * k; return ol; };
+      e.alt = e.alt ?? d.alt;
+      if (G.mode === "orbit") {
+        G.ang += 0.5 * dt;
+        toward(p.x + Math.cos(G.ang) * 100, p.y + Math.sin(G.ang) * 70);
+        e.alt = Math.min(d.alt, e.alt + 20 * dt);
+        if ((G.t -= dt) <= 0) { G.mode = "run"; G.vx = dx / dist; G.vy = dy / dist; G.t = (dist + 100) / D.runSpeed; run.events.push({ type: "strafe" }); }
+      } else if (G.mode === "rearm") {   // sets down near the mech, hovers low for a few seconds, lifts off
+        const ol = toward(G.tx, G.ty);
+        if (ol < 6) { e.alt = Math.max(D.lowAlt, e.alt - 24 * dt); G.t -= dt; mx *= 0.2; my *= 0.2; }
+        if (G.t <= 0) { G.mode = "orbit"; G.t = D.every; G.ang = Math.atan2(e.y - p.y, e.x - p.x); }
+      } else {
+        mx = (G.vx * d.gunship.runSpeed) / d.speed; my = (G.vy * d.gunship.runSpeed) / d.speed;
+        if ((G.fire -= dt) <= 0 && dist < 130) {
+          G.fire = d.gunship.fireEvery;
+          const a = Math.atan2(dy, dx) + (rand() - 0.5) * 0.3;
+          run.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * d.gunship.boltSpeed, vy: Math.sin(a) * d.gunship.boltSpeed, dmg: d.gunship.boltDmg * waveDmgMul(run.wave) * e.dmgMul, src: "gunship cannon" });
+        }
+        if ((G.t -= dt) <= 0) {
+          if (++G.runs % D.rearmEvery === 0) {   // pick a clear spot ~60px from the mech to set down
+            const a = rand() * Math.PI * 2; G.mode = "rearm"; G.t = D.rearm; G.tx = p.x + Math.cos(a) * 60; G.ty = p.y + Math.sin(a) * 60;
+            G.tx = clamp(G.tx, 20, ARENA.w - 20); G.ty = clamp(G.ty, 20, ARENA.h - 20);
+          } else { G.mode = "orbit"; G.t = D.every; G.ang = Math.atan2(e.y - p.y, e.x - p.x); }
+        }
+      }
+    } else if (d.flying) { /* straight at the mech, over everything */ }
     else if (lobber && dist < d.keepAway) { mx *= -0.6; my *= -0.6; }            // artillery backs off...
     else if (lobber && dist < d.keepAway * 1.3) { mx = 0; my = 0; }                // ...and holds at range
     else if (d.keepAway && dist < d.keepAway && clearLine(city, e.x, e.y, p.x, p.y)) { mx *= -0.6; my *= -0.6; }
@@ -344,7 +374,7 @@ export function update(run, dt, move) {
     const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
     if (dx * dx + dy * dy < r * r) {
       const stomp = s.ram ? 1 : run.chassis.stomp || 0;
-      if (stomp && !(e.ramT > run.time)) {   // every frame hurts what it walks into; the Bulwark shoulders through
+      if (stomp && !(e.d.flying && altOf(e) > 12) && !(e.ramT > run.time)) {   // every frame hurts what it walks into; the Bulwark shoulders through
         e.ramT = run.time + RAM.every;
         const d = Math.hypot(dx, dy) || 1, knock = RAM.knock * (s.ram ? 1 : 0.5);
         hitEnemy(run, e, RAM.enemy * stomp * (p.moving ? 1 : 0.5) * (1 + 0.3 * run.wave), (-dx / d) * knock, (-dy / d) * knock);
@@ -406,11 +436,11 @@ export function update(run, dt, move) {
       // rounds start at the barrel tip: ground position under it, flying at the weapon's height
       const tipX = m.x + Math.cos(base) * ml, tipY = p.y + Math.sin(base) * ml, h = p.y - m.y;
       // at a flyer the rounds climb to its altitude on the way (and so fly over cover): what you see is what hits
-      const air = !!t.d.flying, slope = air ? (FLY_ALT - h) / Math.max(12, Math.hypot(t.x - tipX, t.y - tipY)) : 0;
+      const air = !!t.d.flying, alt = altOf(t), slope = air ? (alt - h) / Math.max(12, Math.hypot(t.x - tipX, t.y - tipY)) : 0;
       for (let i = 0; i < def.pellets; i++) {
         const a = base + (rand() - 0.5) * def.spread * (flak ? 1 : 2);
         const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: tipX, y: tipY, h, air, slope, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
+        run.shots.push({ x: tipX, y: tipY, h, air, slope, alt, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
       }
       run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.12 : 0.07, max: flak ? 0.12 : 0.07 });
       run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
@@ -510,7 +540,8 @@ export function update(run, dt, move) {
     if (sh.life <= 0) continue;
     if (sh.slope) {   // climbing (or dipping) to flyer altitude, then level
       const nh = sh.h + sh.slope * Math.hypot(sh.vx, sh.vy) * dt;
-      if ((sh.slope > 0 && nh >= FLY_ALT) || (sh.slope < 0 && nh <= FLY_ALT)) { sh.h = FLY_ALT; sh.slope = 0; } else sh.h = nh;
+      const top = sh.alt ?? FLY_ALT;
+      if ((sh.slope > 0 && nh >= top) || (sh.slope < 0 && nh <= top)) { sh.h = top; sh.slope = 0; } else sh.h = nh;
     }
     if (!sh.air && solidAt(city, sh.x, sh.y)) {   // cover: rounds chew into whatever they hit
       damageAt(city, Math.floor(sh.y / TILE) * TCOLS + Math.floor(sh.x / TILE), sh.dmg * BUILDING_DMG.ballistic);
@@ -524,7 +555,7 @@ export function update(run, dt, move) {
     let hit = null;
     near(sh.x, sh.y, 20, (e) => {
       if (hit || e.dead) return;
-      if (e.d.flying && !sh.air && Math.abs((sh.h ?? 4) - FLY_ALT) > 4) return;   // low rounds at ground targets pass under flyers, as drawn
+      if (e.d.flying && !sh.air && Math.abs((sh.h ?? 4) - altOf(e)) > 4) return;   // low rounds at ground targets pass under flyers, as drawn
       const dx = e.x - sh.x, dy = e.y - sh.y, r = e.d.r + 1.5;
       if (dx * dx + dy * dy < r * r) hit = e;
     });
@@ -793,12 +824,12 @@ function plan(run, w) {
 /** Lightning's path from a first enemy: nearest un-struck enemy within reach each jump; when none is in
  *  reach, an unbroken lamp post carries it on (a jump with no hit). */
 function arcChain(run, start, def) {
-  const hit = [start], pts = [[start.x, start.y - (start.d.flying ? (start.d.alt ?? FLY_ALT) : 4)]], seen = new Set(hit), lamps = new Set();
+  const hit = [start], pts = [[start.x, start.y - (start.d.flying ? altOf(start) : 4)]], seen = new Set(hit), lamps = new Set();
   let cx = start.x, cy = start.y;
   for (let j = 1; j < def.chains; j++) {
     let best = null, bd = def.jump;
     for (const e of run.enemies) { if (e.dead || seen.has(e)) continue; const d = Math.hypot(e.x - cx, e.y - cy); if (d < bd) { bd = d; best = e; } }
-    if (best) { seen.add(best); hit.push(best); cx = best.x; cy = best.y; pts.push([cx, cy - (best.d.flying ? (best.d.alt ?? FLY_ALT) : 4)]); continue; }
+    if (best) { seen.add(best); hit.push(best); cx = best.x; cy = best.y; pts.push([cx, cy - (best.d.flying ? altOf(best) : 4)]); continue; }
     let lamp = null, ld = def.jump;
     for (const pr of run.city.props) { if (pr.type !== "lamp" || pr.broken || lamps.has(pr)) continue; const d = Math.hypot(pr.x - cx, pr.y - cy); if (d < ld) { ld = d; lamp = pr; } }
     if (!lamp) break;
