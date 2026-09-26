@@ -342,10 +342,11 @@ export function update(run, dt, move) {
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
     const dx = p.x - e.x, dy = p.y - e.y, r = e.d.r + run.chassis.radius;
     if (dx * dx + dy * dy < r * r) {
-      if (s.ram && !(e.ramT > run.time)) {   // Bulwark shoulders through what it touches
+      const stomp = s.ram ? 1 : run.chassis.stomp || 0;
+      if (stomp && !(e.ramT > run.time)) {   // every frame hurts what it walks into; the Bulwark shoulders through
         e.ramT = run.time + RAM.every;
-        const d = Math.hypot(dx, dy) || 1;
-        hitEnemy(run, e, RAM.enemy * (1 + 0.3 * run.wave), (-dx / d) * RAM.knock, (-dy / d) * RAM.knock);
+        const d = Math.hypot(dx, dy) || 1, knock = RAM.knock * (s.ram ? 1 : 0.5);
+        hitEnemy(run, e, RAM.enemy * stomp * (p.moving ? 1 : 0.5) * (1 + 0.3 * run.wave), (-dx / d) * knock, (-dy / d) * knock);
       }
       if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul, "contact " + e.type);
     }
