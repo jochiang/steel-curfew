@@ -1,5 +1,5 @@
 import { ARENA, ENEMIES, WEAPONS, FLY_ALT } from "./content.js";
-import { weaponsOffline, mountPoint, darkness } from "./game.js";
+import { weaponsOffline, mountPoint, darkness, rainAt } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
@@ -207,6 +207,72 @@ export function createRenderer(canvas) {
     if (!fogs.has(k)) fogs.set(k, fogTexture(FOG[tod].color, 256, layer ? 91 : 7, FOG[tod].alpha * (layer ? 0.7 : 1)));
     return fogs.get(k);
   };
+  // ---- weather (render-only; user: "lightning flashes could also help with the ambiance"). Rain
+  // follows the dark (rainAt). Drops and splashes are drawn before the light map, so they show in
+  // lamp light, headlights and muzzle flashes and fade to a faint sheen elsewhere. Heavy rain brings
+  // lightning: a bolt, a half-second blue-white flicker over the whole city, and thunder a moment
+  // later (sooner and louder when the strike is close). Everything stops while the run is frozen.
+  const weather = { drops: [], splashes: [], next: 5, flash: 0, flashMax: 0.55, bolt: null, rain: 0, lastT: -1, wind: 0 };
+  const mixRgb = (css, to, k) => { const c = css.match(/\d+/g).map(Number); return "rgb(" + c.map((v, i) => Math.round(v + (to[i] - v) * k)).join(",") + ")"; };
+  function tickWeather(run, dt, d, left, top) {
+    const W = weather, live = run.time !== W.lastT; W.lastT = run.time;
+    W.rain = rainAt(d);
+    W.wind = Math.cos((run.seed % 628) / 100) * 0.35;
+    if (live) {
+      const want = Math.round(200 * W.rain);
+      while (W.drops.length < want) W.drops.push({ x: left + Math.random() * (vw + 20) - 10, y: top + Math.random() * (vh + 30) - 20, z: 0.7 + Math.random() * 0.6 });
+      if (W.drops.length > want) W.drops.length = want;
+      for (const q of W.drops) {
+        q.y += 300 * q.z * dt; q.x += 300 * q.z * W.wind * dt;
+        if (q.y > top + vh + 10 || Math.random() < dt * 1.5) {   // hits the street somewhere: splash, then back to the top
+          if (q.y <= top + vh + 10) W.splashes.push({ x: q.x, y: q.y, t: 0.12 });
+          q.y = top - 10 - Math.random() * 20; q.x = left + Math.random() * (vw + 20) - 10;
+        }
+        if (q.x < left - 12) q.x += vw + 24; else if (q.x > left + vw + 12) q.x -= vw + 24;   // stay with the camera
+        if (q.y < top - 40) q.y += vh + 40;
+      }
+      for (const s of W.splashes) s.t -= dt;
+      W.splashes = W.splashes.filter((s) => s.t > 0);
+      if (W.flash > 0) W.flash = Math.max(0, W.flash - dt);
+      if (W.bolt && (W.bolt.t -= dt) <= 0) W.bolt = null;
+      if (W.rain > 0.4 && (W.next -= dt) <= 0) {
+        W.next = 7 + Math.random() * 12;
+        W.flash = W.flashMax;
+        const near = Math.random();
+        const bx = left + 20 + Math.random() * (vw - 40), by = top + vh * (0.25 + Math.random() * 0.6), pts = [[bx + (Math.random() - 0.5) * 40, top - 4]];
+        while (pts[pts.length - 1][1] < by) { const [x, y] = pts[pts.length - 1]; pts.push([x + (bx - x) * 0.25 + (Math.random() - 0.5) * 14, Math.min(by, y + 6 + Math.random() * 10)]); }
+        const fork = pts[Math.floor(pts.length * 0.45)], branch = [fork];
+        for (let i = 0; i < 4; i++) { const [x, y] = branch[branch.length - 1]; branch.push([x + 5 + Math.random() * 8, y + 5 + Math.random() * 7]); }
+        W.bolt = { pts, branch, t: 0.16, max: 0.16, x: bx, y: by };
+        run.events.push({ type: "thunder", near, when: 0.3 + (1 - near) * 1.5 });
+      }
+    }
+    // the flicker: bright, dip, bright again, then a fading glow
+    const k = W.flash / W.flashMax, f = W.flash <= 0 ? 0 : k > 0.8 ? 1 : k > 0.66 ? 0.25 : k > 0.5 ? 0.9 : k * 0.9;
+    return { flash: f };
+  }
+  function drawRain(X, Y) {
+    const W = weather;
+    if (!W.drops.length && !W.splashes.length) return;
+    g.fillStyle = "#d4def2"; g.globalAlpha = 0.5;
+    for (const q of W.drops) { const n = q.z > 1.05 ? 4 : 3; for (let i = 0; i < n; i++) g.fillRect(X(q.x - W.wind * (n - i) * 1.2), Y(q.y - (n - i) * 1.4), 1, 1); }
+    g.globalAlpha = 0.6;
+    for (const s of W.splashes) { const x = X(s.x), y = Y(s.y); g.fillRect(x - 1, y, 1, 1); g.fillRect(x + 1, y, 1, 1); if (s.t > 0.06) g.fillRect(x, y - 1, 1, 1); }
+    g.globalAlpha = 1;
+  }
+  function drawLightning(X, Y) {
+    const b = weather.bolt;
+    if (!b) return;
+    const k = b.t / b.max;
+    g.globalCompositeOperation = "lighter";
+    const gl = glowOf(10, "#3a4a8a");
+    for (const [x, y] of b.pts) g.drawImage(gl, X(x) - 10, Y(y) - 10);
+    g.globalCompositeOperation = "source-over";
+    g.fillStyle = k > 0.5 ? "#ffffff" : "#c8d4ff";
+    for (const line of [b.pts, b.branch]) for (let i = 1; i < line.length; i++) linePx(g, X(line[i - 1][0]), Y(line[i - 1][1]), X(line[i][0]), Y(line[i][1]));
+    if (k > 0.5) { g.fillStyle = "#ffffff"; g.fillRect(X(b.x) - 1, Y(b.y) - 1, 3, 3); }
+  }
+
   function drawFog(run, left, top, t, d) {
     const a = ((run.seed % 628) / 100), wx = Math.cos(a), wy = Math.sin(a) * 0.5;
     // cross-fade between the day, dusk and night fogs as the light changes
@@ -235,7 +301,8 @@ export function createRenderer(canvas) {
     const X = (v) => Math.round(v + ox), Y = (v) => Math.round(v + oy);
     const t = run.time, p = run.player, city = run.city, d = darkness(run);
     const lit = d > 0.06, night = d > 0.5;   // lit: use the light map; night: windows and signs are on
-    const tod = { ambient: ambientAt(d), vig: 1, d };   // one vignette pass: a second one hid enemies coming in from the edges
+    const storm = tickWeather(run, dt, d, left, top);   // rain + lightning (render-only)
+    const tod = { ambient: storm.flash > 0 ? mixRgb(ambientAt(d), [196, 206, 240], storm.flash * 0.85) : ambientAt(d), vig: 1, d };   // one vignette pass: a second one hid enemies coming in from the edges
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
     g.globalCompositeOperation = "source-over"; g.globalAlpha = 1; g.imageSmoothingEnabled = false;
@@ -393,6 +460,7 @@ export function createRenderer(canvas) {
     g.globalAlpha = 1;
 
     drawFog(run, left, top, t, d);
+    drawRain(X, Y);
 
     // ---- night / dusk: multiply the scene by a light map
     if (lit) {
@@ -403,6 +471,7 @@ export function createRenderer(canvas) {
     }
 
     // ---- everything below glows on its own, so it's drawn after the light map
+    drawLightning(X, Y);
     // spawn telegraphs: a reticle that closes in
     for (const m of run.marks) {
       const k = 1 - m.t / m.max, big = m.type === "crusher", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
@@ -606,6 +675,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = tx.big ? "#9fe8ff" : tx.n >= 40 ? C.energy : "#f4f1ea"; ctx.fillText(tx.n, x, y);
     }
     ctx.globalAlpha = 1;
+    if (weather.flash > 0) { ctx.fillStyle = `rgba(210,220,255,${weather.flash * 0.22})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
     if (run.flashT > 0) {   // boss lightning
       const k = run.flashT / 0.6, flick = k > 0.75 || (k > 0.45 && k < 0.6) ? 1 : 0.35;
       ctx.fillStyle = `rgba(225,232,255,${k * 0.55 * flick})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -747,6 +817,7 @@ export function createRenderer(canvas) {
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
     cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
     cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
+    if (weather.bolt) put(70, "#7a8ad0", weather.bolt.x, weather.bolt.y);   // the strike lights up the block it hits
     {   // the frame's light package (see mechLights)
       const L = mechLights(run, t);
       for (const c of L.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);

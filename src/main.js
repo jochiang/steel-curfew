@@ -3,10 +3,10 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, update, nextWave, startWave, darkness, stayOut } from "./game.js";
+import { newRun, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
-import { play } from "./audio.js";
+import { play, setRain } from "./audio.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs } from "./fullscreen.js";
 import { updateMusic, stinger, musicState } from "./music.js";
 import { WAVES } from "./content.js";
@@ -170,6 +170,7 @@ function step(now) {
     syncScreens();
   }
   updateMusic(musicContext(), dt);
+  setRain(run?.phase === "combat" ? rainAt(darkness(run)) * (paused ? 0.35 : 1) : 0);   // the rain hiss follows the weather
   if (run) {
     for (const e of run.events) {   // musical punctuation for the big moments
       if (e.type === "waveClear") stinger(run.wave === WAVES.length - 1 && !run.endless ? "won" : "clear");

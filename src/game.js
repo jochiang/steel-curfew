@@ -49,6 +49,8 @@ export function darkness(run) {
   const f = Math.min(1, run.waveTime / WAVES[w].duration);
   return DUSK_KEYS[w] + (DUSK_KEYS[w + 1] - DUSK_KEYS[w]) * f;
 }
+// Rain comes in with the dark: none by day, starting at twilight, pouring at night (and past curfew)
+export const rainAt = (d) => Math.max(0, Math.min(1, (d - 0.62) / 0.3));
 export const timeLabel = (d) => (d < 0.15 ? "day" : d < 0.4 ? "afternoon" : d < 0.62 ? "dusk" : d < 0.9 ? "twilight" : "night");
 export function newRun({ seed = Date.now(), chassis = "warden", start = "autocannon", ventMode = "all", targeting = "crowd", tod = null, allowed = null } = {}) {
   const run = {

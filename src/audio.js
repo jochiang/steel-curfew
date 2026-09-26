@@ -106,6 +106,12 @@ const SFX = {
   },
   hurt: () => gate("hurt", 120) && (tone("square", 150, 70, 0.16, 0.12), hiss(0.1, 0.1, { type: "lowpass", f0: 900 })),
   enemyShot: () => gate("eshot", 120) && tone("triangle", 420, 700, 0.08, 0.04),
+  thunder: (e) => {   // near strikes crack; far ones only roll
+    const near = e.near ?? 0.5, w = e.when ?? 0.5;
+    if (near > 0.45) hiss(0.08, 0.1 + near * 0.12, { f0: 2200, q: 0.5, when: w });
+    hiss(1.6 + (1 - near) * 1.4, 0.08 + near * 0.12, { type: "lowpass", f0: 300 + near * 200, f1: 50, attack: 0.08 + (1 - near) * 0.25, when: w + 0.03, hold: 0.3 });
+    tone("sine", 42, 28, 1.6, 0.1 + near * 0.12, { attack: 0.12, when: w + 0.04 });
+  },
   spawnBoss: () => {
     hiss(0.06, 0.2, { f0: 2500, q: 0.5 });                                                   // the crack...
     hiss(2.2, 0.2, { type: "lowpass", f0: 400, f1: 60, attack: 0.12, when: 0.05, hold: 0.4 });   // ...and the rolling thunder
@@ -118,6 +124,20 @@ const SFX = {
   buy: () => { tone("square", 700, 700, 0.04, 0.05); tone("square", 1050, 1050, 0.06, 0.05, { when: 0.05 }); },
   click: () => tone("square", 1200, 1200, 0.015, 0.03),
 };
+
+// Rain: a looping band of noise whose level follows the weather (0..1), eased so it swells and fades
+let rainGain = null;
+export function setRain(level) {
+  if (!ac || ac.state !== "running") return;
+  if (!rainGain) {
+    const s = ac.createBufferSource(), hp = ac.createBiquadFilter(), lp = ac.createBiquadFilter();
+    rainGain = ac.createGain(); rainGain.gain.value = 0;
+    s.buffer = noise; s.loop = true;
+    hp.type = "highpass"; hp.frequency.value = 900; lp.type = "lowpass"; lp.frequency.value = 5200;
+    s.connect(hp).connect(lp).connect(rainGain).connect(master); s.start();
+  }
+  rainGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.07, ac.currentTime, 0.6);
+}
 
 /** Play and clear queued game events */
 export function play(events) {
