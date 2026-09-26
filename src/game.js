@@ -240,8 +240,11 @@ export function update(run, dt, move) {
     const types = Array.isArray(wave.boss) ? wave.boss : [wave.boss];
     const shift = Math.floor(pastCurfew(run.wave) / 3);   // past curfew the boss alternates with wave 5's
     for (let i = 0; i < (wave.bossCount || 1); i++) {
-      const c = spawnPoint(run, 180);
-      run.marks.push({ ...c, t: 1.6 + i * 0.8, max: 1.6 + i * 0.8, type: types[mod(run.seed + shift + i, types.length)] });   // seeds can be negative (older saves): % alone gives -1
+      const type = types[mod(run.seed + shift + i, types.length)];   // seeds can be negative (older saves): % alone gives -1
+      const b = type === "hive" ? hiveSite(run) : null;
+      if (type === "hive" && !b) continue;   // no building left standing to nest in
+      const c = b ? { x: (b.x + b.w / 2) * TILE, y: (b.y + b.h / 2) * TILE, bid: b.id } : spawnPoint(run, 180);
+      run.marks.push({ ...c, t: 1.6 + i * 0.8, max: 1.6 + i * 0.8, type });
     }
     run.events.push({ type: "spawnBoss" });
     run.flashT = 0.6;   // lightning as it lands
@@ -253,8 +256,10 @@ export function update(run, dt, move) {
     const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1);
     run.m.hpSpawned += hp;
     if (d.boss) { run.m.bossSpawnT = run.time; run.m.bossType = m.type; run.m.bossHp = hp; }
+    if (d.hive) { const b = run.city.buildings[m.bid]; b.hiveBank = b.hp = HIVE_BANK; b.hiveFrac = 1; }
     run.enemies.push({
-      type: m.type, d, x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), dead: false, elite,
+      type: m.type, d: d.hive ? { ...d, r: Math.min(run.city.buildings[m.bid].w, run.city.buildings[m.bid].h) * TILE * 0.5 } : d, bid: m.bid,
+      x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), dead: false, elite, fromHive: !!m.fromHive,
       dmgMul: elite ? ELITE.dmg : 1, spdMul: elite ? ELITE.speed : 1,
       shootT: (d.shootEvery || d.burstEvery || d.lobEvery || 0) * (0.5 + rand() * 0.5),
       barT: (d.barrageEvery || 0) * 0.6, depT: (d.deployEvery || 0) * 0.5, burn: 0,
@@ -265,6 +270,7 @@ export function update(run, dt, move) {
   // --- enemies
   const kbDecay = Math.exp(-8 * dt);
   for (const e of run.enemies) {
+    if (e.d.hive) { tickHive(run, e, dt); continue; }
     const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
     let mx = dx / dist, my = dy / dist;
     const lobber = d.lobEvery || d.barrageEvery;
@@ -367,7 +373,7 @@ export function update(run, dt, move) {
     });
   }
   for (const e of run.enemies) {
-    if (e.dead) continue;
+    if (e.dead || e.d.hive) continue;
     if (!e.d.flying) collide(city, e, e.d.r, e.d.crush ? (ti) => { e.crushing = true; damageAt(city, ti, e.d.crush * dt * 0.5); } : null);
     if (e.d.crush && e.crushing) breakProps(run, e.x, e.y, e.d.r + 2);
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
@@ -620,6 +626,37 @@ export function update(run, dt, move) {
   if (run.waveTime >= wave.duration) clearWave(run);
 }
 
+// ---------------------------------------------------------------- the Hive Block
+const HIVE_BANK = 1e9;   // the nest's building holds this much HP; whatever is knocked off it goes to the hive
+function hiveSite(run) {   // a big standing building 90-230px from the mech (else the biggest standing one)
+  const p = run.player, ok = run.city.buildings.filter((b) => !b.dead && b.w * b.h >= 4);
+  const score = (b) => { const d = Math.hypot((b.x + b.w / 2) * TILE - p.x, (b.y + b.h / 2) * TILE - p.y); return (d > 90 && d < 230 ? 100 : 0) + b.w * b.h; };
+  return ok.sort((a, b) => score(b) - score(a))[0] || null;
+}
+function tickHive(run, e, dt) {
+  const b = run.city.buildings[e.bid], H = e.d.hive;
+  e.flash -= dt;
+  if (!b || b.dead) { if (!e.dead) { e.hp = 0; hitEnemy(run, e, 1); } return; }
+  const knocked = b.hiveBank - b.hp;   // damage the building took this frame
+  if (knocked > 0) { b.hp = b.hiveBank; hitEnemy(run, e, knocked * H.routed, 0, 0, true); if (e.dead) return; }
+  e.kx = e.ky = 0;
+  b.hiveFrac = Math.max(0, e.hp / e.maxHp);
+  const enraged = b.hiveFrac < H.enraged;
+  if ((e.shootT -= dt) > 0) return;
+  e.shootT = H.every * (enraged ? 0.6 : 1);
+  const city = run.city, rand = run.rand, n = H.n + (enraged ? 1 : 0);
+  const brood = run.enemies.filter((q) => q.fromHive && !q.dead).length + run.marks.filter((m) => m.fromHive).length;
+  for (let i = 0, tries = 0; i < n && tries < 20 && brood + i < H.cap && run.enemies.length + run.marks.length < MAX_ENEMIES; tries++) {   // out of a random side
+    const side = Math.floor(rand() * 4), f = rand();
+    const x = side < 2 ? (b.x + f * b.w) * TILE : side === 2 ? b.x * TILE - 7 : (b.x + b.w) * TILE + 7;
+    const y = side === 0 ? b.y * TILE - 7 : side === 1 ? (b.y + b.h) * TILE + 7 : (b.y + f * b.h) * TILE;
+    if (solidAt(city, x, y) || !reachable(run.field, x, y)) continue;
+    run.marks.push({ x, y, t: 0.5, max: 0.5, type: pick(rand, H.pool), noElite: true, fromHive: true });
+    i++;
+  }
+  run.events.push({ type: "hive" });
+}
+
 function spawnPoint(run, minDist) {
   const p = run.player, city = run.city;
   let best = null;
@@ -639,12 +676,15 @@ function sightedEnemy(run, range) {
   const p = run.player, r2 = range * range, cands = [];
   for (const e of run.enemies) {
     if (e.dead) continue;
-    const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+    const d2 = reachOf(e, p) ** 2;
     if (d2 < r2) cands.push([d2, e]);
   }
   if (!cands.length) return null;
   cands.sort((a, b) => a[0] - b[0]);
-  for (let i = 0; i < Math.min(8, cands.length); i++) if (cands[i][1].d.flying || clearLine(run.city, p.x, p.y, cands[i][1].x, cands[i][1].y)) return cands[i][1];   // flyers are above the cover
+  for (let i = 0; i < Math.min(8, cands.length); i++) {   // flyers are above the cover; a hive is hit through its walls
+    const e = cands[i][1];
+    if (e.d.flying || (e.d.hive && cands[i][0] < 30 * 30) || clearLine(run.city, p.x, p.y, e.x, e.y)) return e;
+  }
   return cands[0][1];
 }
 
@@ -765,13 +805,15 @@ function processCollapses(run) {
   }
 }
 
+// how far away an enemy is for targeting: a hive counts from its building's walls, not its centre
+const reachOf = (e, p) => Math.max(0, Math.hypot(e.x - p.x, e.y - p.y) - (e.d.hive ? e.d.r : 0));
 function nearestEnemy(run, range) {
   const p = run.player;
-  let best = null, bd = range * range;
+  let best = null, bd = range;
   for (const e of run.enemies) {
     if (e.dead) continue;
-    const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
-    if (d2 < bd) { bd = d2; best = e; }
+    const d = reachOf(e, p);
+    if (d < bd) { bd = d; best = e; }
   }
   return best;
 }
@@ -925,6 +967,10 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
     run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
   }
   if (e.d.boss) { run.shake = Math.max(run.shake, 10); run.freeze = 0.18; }
+  if (e.d.hive) {   // the nest dies and the block comes down with it
+    const b = run.city.buildings[e.bid];
+    if (b && !b.dead) { b.hiveBank = b.hiveFrac = undefined; b.hp = 1; damageBuilding(run.city, b, 10); }
+  }
   if (e.d.r >= 9) breakProps(run, e.x, e.y, e.d.r + 6);
   if (e.d.blast) explode(run, e);   // shot sappers still go off: chain reactions
 }
@@ -998,6 +1044,10 @@ function clearWave(run) {
 }
 
 function endWave(run) {
+  for (const b of run.city.buildings) if (b.hiveBank) {   // a hive that outlived the timer: the block survives, as damaged as the hive was
+    b.hp = Math.max(1, b.maxHp * (b.hiveFrac ?? 1));
+    b.hiveBank = b.hiveFrac = b.hiveNodes = undefined;
+  }
   const leftover = run.pickups.reduce((t, k) => t + k.n, 0) + SHOP.waveBonus(run.wave);
   run.salvage += leftover; run.m.earned += leftover;
   for (const k of ["enemies", "bolts", "shots", "pickups", "marks"]) run[k].length = 0;

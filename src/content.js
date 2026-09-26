@@ -165,6 +165,10 @@ export const ENEMIES = {
   gunship: { name: "Gunship",     hp: 440, speed: 82, dmg: 0, r: 14, salvage: 45, color: "#5a6878", mass: 20, boss: true, flying: true, alt: 20,
              gunship: { every: 6, runSpeed: 150, fireEvery: 0.1, boltSpeed: 120, boltDmg: 5, rearmEvery: 2, rearm: 3.2, lowAlt: 7 },
              barrageEvery: 6, barrage: 4, shell: { flight: 1.0, radius: 18, dmg: 12, building: 45 } },
+  // Hive Block: a building becomes the nest. The boss is anchored inside it (its r is set from the building at
+  // spawn); damage to the building is passed on at `routed`, direct hits count in full. Swarms pour from its edges.
+  hive:    { name: "Hive Block",  hp: 560, speed: 0, dmg: 0, r: 10, salvage: 50, color: "#b04aa0", mass: 999, boss: true,
+             hive: { every: 3, n: 3, cap: 22, enraged: 0.5, routed: 0.5, pool: [["drone", 3], ["skitter", 3], ["wasp", 2], ["spitter", 1]] } },
   crusher: { name: "Crusher",     hp: 460, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
              burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
 };
@@ -175,7 +179,7 @@ export const WAVES = [
   { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1], ["wasp", 1]] },
   { duration: 30, interval: 1.7, group: 4, pool: [["drone", 6], ["skitter", 2], ["brute", 1], ["sapper", 1]] },
   { duration: 35, interval: 1.4, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["wasp", 1]] },
-  { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege", "gunship"] },
+  { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege", "gunship", "hive"] },
 ];
 // Past curfew (endless, optional after the wave-5 boss): each wave past the table is the last one,
 // with enemy HP x1.2 and spawns x1.1 compounding, and a boss every 3rd wave (both bosses from +9).

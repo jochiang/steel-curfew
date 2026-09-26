@@ -389,6 +389,7 @@ export function enemyFrames(type, glow = false, elite = false) {
     case "wasp": return WASP.map((f) => build(f, pal("teal", { w: "#bfe8e8", E: "#fff4c2" }), o("E")));
     case "siege": return [0, 1].map((k) => build(SIEGE, pal("steelRust", { ...EYE, E: k ? "#fff0c0" : "#ffb070" }), o("eE")));
     case "drone": return [build(DRONE, pal("rust", EYE), o("eE"))];
+    case "hive": return [build(["o"], { o: "rgba(0,0,0,0)" })];   // drawn as its building, not a sprite
     case "gunship": return [build(GUNSHIP, pal("steel", { E: "#ffe9a0", L: "#ff3b2e", k: "#15131b", v: "#ff9a4c" }), o("ELv"))];
     case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), o("E")));
     case "brute": return [build(BRUTE, pal("violet", EYE), o("eE"))];

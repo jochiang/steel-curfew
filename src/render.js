@@ -174,7 +174,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  const stageOf = (b) => (b.hp > b.maxHp * 0.66 ? 0 : b.hp > b.maxHp * 0.33 ? 1 : 2);
+  const stageOf = (b) => { const f = b.hiveFrac ?? b.hp / b.maxHp; return f > 0.66 ? 0 : f > 0.33 ? 1 : 2; };   // a hive's building shows the hive's health
   function buildingSprite(b, stage, night) {
     const k = b.id + ":" + stage + (night ? "n" : "");
     if (!bsprites.has(k)) bsprites.set(k, paintBuilding(b, stage, night));
@@ -373,6 +373,7 @@ export function createRenderer(canvas) {
     // ---- shadows, then everything that stands up, sorted by its base line. Buildings are 3/4
     // view: the roof is drawn raised by the wall height, so tall blocks hide what's behind them.
     for (const e of run.enemies) {
+      if (e.d.hive) continue;
       const w = e.d.r * 2 + (e.d.boss ? 2 : 0), s = shadow(w);
       g.drawImage(s, X(e.x) - (w >> 1), Y(e.y) + e.d.r - (s.height >> 1) + (e.type === "drone" ? 2 : 0));
     }
@@ -395,7 +396,7 @@ export function createRenderer(canvas) {
     }
     for (const f of run.fx) if (f.type === "collapse") { const b = city.buildings[f.bid]; items.push([(b.y + b.h) * TILE, 1, b, f]); }
     for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) items.push([pr.y + 4, 2, pr]);
-    for (const e of run.enemies) if (!e.d.flying) items.push([e.y + e.d.r * 0.5, 3, e]);
+    for (const e of run.enemies) if (!e.d.flying && !e.d.hive) items.push([e.y + e.d.r * 0.5, 3, e]);
     items.push([p.y + 8, 4, p]);
     // projectiles sort in too, so a roof hides the ones flying behind it
     for (const b of run.bolts) items.push([b.y, 5, b]);
@@ -408,6 +409,7 @@ export function createRenderer(canvas) {
         const bx = X(o.x * TILE) + jit, by = Y(o.y * TILE - wallHeight(o));
         g.drawImage(spr, bx, by);
         shown.push([o, spr, bx, by]);
+        if (o.hiveFrac != null) drawHiveGrowth(o, bx, by, t);
         if (o.burn > 0 && Math.random() < dt * o.w * o.h * 1.5) flame((o.x + 0.2 + Math.random() * (o.w - 0.4)) * TILE, (o.y + 0.3 + Math.random() * (o.h - 0.4)) * TILE - wallHeight(o));
         if (stage === 2) {
           if (Math.random() < dt * (1 + o.w * o.h * 0.3)) smoke.push({ x: (o.x + Math.random() * o.w) * TILE, y: (o.y + Math.random() * o.h) * TILE - wallHeight(o), t: 1.4, max: 1.4 });
@@ -486,7 +488,7 @@ export function createRenderer(canvas) {
     drawLightning(X, Y);
     // spawn telegraphs: a reticle that closes in
     for (const m of run.marks) {
-      const k = 1 - m.t / m.max, big = m.type === "crusher", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
+      const k = 1 - m.t / m.max, big = m.type === "crusher" || m.type === "hive", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
       const x = X(m.x), y = Y(m.y), blink = Math.floor(k * 12 * (1 + k)) % 2;
       g.fillStyle = blink ? "#ff8a70" : C.danger;
       for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
@@ -504,7 +506,7 @@ export function createRenderer(canvas) {
     }
 
     // x-ray: units hidden behind a building are drawn again as faint silhouettes
-    for (const e of run.enemies) if (!e.d.flying && occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
+    for (const e of run.enemies) if (!e.d.flying && !e.d.hive && occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
     if (occluded(city, p.x, p.y + 8)) { const xr = mechSet(run.chassisKey).xray, [mx, my] = mechAt(xr, X, Y, p); g.globalAlpha = 0.6; g.drawImage(xr, mx, my); g.globalAlpha = 1; }
 
     // fire
@@ -736,6 +738,25 @@ export function createRenderer(canvas) {
     lg.restore();
   }
 
+  // ---- the Hive Block's growth: pulsing magenta nodes and veins over the roof, spreading as the hive weakens
+  function hiveNodes(b) {
+    if (b.hiveNodes) return b.hiveNodes;
+    let s = (b.id * 2654435761) >>> 0; const r = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const W = b.w * TILE, H = b.h * TILE, n = Math.round(6 + b.w * b.h * 1.5), out = [];
+    for (let i = 0; i < n; i++) out.push({ x: 2 + r() * (W - 4), y: 2 + r() * (H - 4), r: 1 + Math.floor(r() * 3), ph: r() * 6, gate: r() });
+    return (b.hiveNodes = out);
+  }
+  function drawHiveGrowth(b, bx, by, t) {
+    const spread = 0.45 + 0.55 * (1 - (b.hiveFrac ?? 1));
+    for (const n of hiveNodes(b)) {
+      if (n.gate > spread) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3 + n.ph), x = bx + Math.round(n.x), y = by + Math.round(n.y);
+      g.fillStyle = "#4a1040"; g.fillRect(x - n.r, y - n.r + 1, n.r * 2 + 1, n.r * 2);
+      g.fillStyle = pulse > 0.5 ? "#d860c0" : "#9a3a8a"; g.fillRect(x - n.r + 1, y - n.r + 1, Math.max(1, n.r * 2 - 1), Math.max(1, n.r * 2 - 2));
+      if (pulse > 0.8) { g.fillStyle = "#ffb0f0"; g.fillRect(x, y, 1, 1); }
+    }
+  }
+
   // ---- sun shadows. The camera looks down from the south, so shadows go south-east at noon (short:
   // the sun is high) and swing east as it sinks (long), then fade out as the lamps take over.
   // Each building's footprint is swept along the shadow into one layer, rebuilt only when the sun
@@ -894,7 +915,7 @@ export function createRenderer(canvas) {
     }
     // enemies: self-lit eyes (drawn white into the map) plus a faint coloured halo
     for (const e of run.enemies) {
-      if (!inView(e.x - 20, e.y - 20, e.x + 20, e.y + 20)) continue;
+      if (e.d.hive || !inView(e.x - 20, e.y - 20, e.x + 20, e.y + 20)) continue;
       const set = enemies[e.type], n = set.glow.length;
       const fi = n > 1 ? Math.floor(t * (e.type === "skitter" ? 12 : 4) + e.ph * 10) % n : 0;
       const spr = set.glow[fi], bob = e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0;
@@ -904,6 +925,11 @@ export function createRenderer(canvas) {
     // bosses bring their own light: the Siege Walker sweeps searchlights, the Crusher's headlights find you
     for (const e of run.enemies) {
       if (!e.d.boss) continue;
+      if (e.d.hive) {   // the nest glows from inside, pulsing
+        const b = city.buildings[e.bid], pulse = 0.75 + 0.25 * Math.sin(t * 3);
+        if (b) { put((20 + b.w * b.h * 1.2) * pulse, "#6a1a5a", e.x, e.y - wallHeight(b)); lg.fillStyle = "#ffffff"; for (const n of hiveNodes(b)) if (n.gate < 0.45 + 0.55 * (1 - (b.hiveFrac ?? 1))) lg.fillRect(X(b.x * TILE + n.x), Y(b.y * TILE - wallHeight(b) + n.y), 1, 1); }
+        continue;
+      }
       if (e.type === "gunship") {   // hunts you with a searchlight: a narrow beam and a pool of light on the mech
         const hy = e.y - altOf(e), a = Math.atan2(p.y + 4 - hy, p.x - e.x);
         cone(X(e.x), Y(hy), a, Math.hypot(p.x - e.x, p.y + 4 - hy) + 26, 0.1, "#b8b29a");
