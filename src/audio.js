@@ -85,6 +85,11 @@ const SFX = {
   },
   tink: () => gate("tink", 45) && (tone("square", 1700 + Math.random() * 400, 1100, 0.02, 0.018), hiss(0.02, 0.025, { f0: 5200, q: 2 })),
   reload: () => gate("reload", 150) && (tone("square", 230, 110, 0.05, 0.05), hiss(0.04, 0.05, { type: "lowpass", f0: 900 }), tone("square", 300, 160, 0.04, 0.04, { when: 0.12 })),
+  arc: () => {   // a crackling snap and a buzz
+    hiss(0.05, 0.22, { f0: 5000, q: 0.6 }); hiss(0.35, 0.12, { f0: 2600, f1: 900, q: 2, when: 0.02 });
+    tone("sawtooth", 120, 60, 0.3, 0.07, { when: 0.02 }); tone("square", 1800, 600, 0.12, 0.03);
+  },
+  overheat: () => { hiss(0.9, 0.12, { type: "highpass", f0: 2500, attack: 0.02 }); tone("square", 180, 90, 0.12, 0.07); },
   reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
   casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),
   punch: () => gate("punch", 80) && (tone("sine", 95, 32, 0.2, 0.4), tone("square", 170, 55, 0.07, 0.09), hiss(0.14, 0.2, { type: "lowpass", f0: 1400, f1: 180 }), hiss(0.03, 0.08, { f0: 3500, q: 1 })),

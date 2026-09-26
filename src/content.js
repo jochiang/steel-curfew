@@ -80,6 +80,12 @@ export const WEAPONS = {
     desc: "Short-range spread of 5 pellets. 4-shell magazine.",
     dmg: 4, range: 85, interval: 0.5, mag: 4, reload: 1.8, speed: 280, spread: 0.35, pellets: 5,
   },
+  rotary: {
+    name: "Rotary Cannon", barrel: 10, family: "ballistic", weight: 9, price: 26,
+    desc: "Spins up the longer it fires, from a slow thump to a buzzsaw. Hold full tilt too long and it overheats.",
+    dmg: 2.2, range: 125, interval: 0.3, speed: 340, spread: 0.09, pellets: 1,
+    rotary: { fast: 0.045, spinUp: 1.8, spinDown: 1.2, heatTime: 4.5, coolTime: 2.5, overheat: 2.4 },
+  },
   lance: {
     name: "Particle Lance", barrel: 10, family: "energy", weight: 8, price: 28, heat: 50,
     desc: "Discharges a piercing beam through the densest line of enemies.",
@@ -94,6 +100,11 @@ export const WEAPONS = {
     name: "Missile Pod", barrel: 5, family: "ballistic", weight: 7, price: 26,
     desc: "Salvos of 3 homing missiles that arc over cover and burst on impact.",
     dmg: 9, range: 170, interval: 0.16, mag: 3, reload: 2.2, missile: { speed: 150, aoe: 16 },
+  },
+  arc: {
+    name: "Arc Caster", barrel: 7, family: "energy", weight: 7, price: 26, heat: 45,
+    desc: "Discharges lightning that leaps enemy to enemy, and through lamp posts when nothing is in reach. Stuns.",
+    dmg: 26, range: 120, kind: "arc", chains: 6, jump: 55, falloff: 0.85, stun: 0.5,
   },
   rail: {
     name: "Railgun", barrel: 11, family: "energy", weight: 9, price: 32, heat: 70,

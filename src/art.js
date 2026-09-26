@@ -446,9 +446,11 @@ const WEAPON_ART = {
   missiles:   [["oooooo", "o3kk3o", "o3kk3o", "o2kk2o", "o2kk2o", "oooooo"]],
   lance:      [["ooooooooooo", "o43qQqQqQco", "ooooooooooo"]],
   nova:       [[".oooo.", "o4qq3o", "oqQQqo", "oqQQqo", "o3qq2o", ".oooo."]],
+  arc:        [["ooooooo..", "o43qQqoo.", "o32QcQqQo", "o43qQqoo.", "ooooooo.."]],
   rail:       [["oooooooooooo", "o44vvvvvvvvo", "o21ooooooooo", "o33vvvvvvvvo", "oooooooooooo"]],
   fist:       [["oooo...", "o33oooo", "o3344o5", "o3233o4", "o2222oo", "oooooo."]],
   chainblade: [["oooooooooooo.", "o32tTtTtTtTto", "oooooooooooo."], ["oooooooooooo.", "o32TtTtTtTtTo", "oooooooooooo."]],
+  rotary:     [["ooooooooooo", "o43o4o4o4oo", "o322222222y", "o43o3o3o3oo", "ooooooooooo"], ["ooooooooooo", "o4o4o4o4ooo", "o32222222yy", "o4o3o3o3ooo", "ooooooooooo"]],
   pyre:       [["oooo....", "orrooooo", "orr3322f", "oooooooo"], ["oooo....", "orrooooo", "orr3322F", "oooooooo"]],
 };
 export function weaponSprites() {

@@ -105,7 +105,7 @@ export function startWave(run) {
   const p = run.player;
   Object.assign(p, { x: run.city.spawn.x, y: run.city.spawn.y, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
   Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
-  for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0 });
+  for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0, spin: 0, heat: 0 });
   for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles"]) run[k].length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
@@ -282,7 +282,8 @@ export function update(run, dt, move) {
       if (e.burnAcc >= 0.3) { e.burnAcc = 0; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); if (e.dead) continue; }
       if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1, fire: true });
     }
-    const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul;
+    if (e.stunT > 0) e.stunT -= dt;   // arc-stunned: frozen in place for a beat
+    const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul * (e.stunT > 0 ? 0 : 1);
     e.crushing = false;
     e.x += (mx * spd + e.kx) * dt;
     e.y += (my * spd + e.ky) * dt;
@@ -369,6 +370,20 @@ export function update(run, dt, move) {
     w.kick = Math.max(0, (w.kick || 0) - dt * 16);      // recoil springs back
     w.swingT = Math.max(0, (w.swingT || 0) - dt);       // melee lunge animation
     if (def.family === "ballistic") {
+      if (def.rotary) {   // spins up while it has something to shoot; held at full tilt it overheats
+        const R = def.rotary;
+        if (w.reloadT > 0) {   // overheated: cooling off, barrels winding down
+          w.spin = Math.max(0, (w.spin || 0) - dt / R.spinDown);
+          if (rand() < dt * 14) { const m = mountPoint(run, run.weapons.indexOf(w)); run.parts.push({ x: m.x + (rand() - 0.5) * 4, y: m.y, vx: (rand() - 0.5) * 10, vy: -16 - rand() * 10, t: 0.6, max: 0.6, color: "#c9c4bc", size: 2, steam: true }); }
+          if ((w.reloadT -= dt) <= 0) { w.heat = 0; run.events.push({ type: "reloaded" }); }
+          continue;
+        }
+        const tgt = offline ? null : sightedEnemy(run, def.range * (1 + s.rangeMul));
+        w.spin = tgt ? Math.min(1, (w.spin || 0) + dt / R.spinUp) : Math.max(0, (w.spin || 0) - dt / R.spinDown);
+        w.heat = Math.max(0, (w.heat || 0) + (tgt && w.spin > 0.5 ? dt / R.heatTime : -dt / R.coolTime));
+        if (w.heat >= 1) { w.reloadT = R.overheat; run.events.push({ type: "overheat" }); continue; }
+        if (!tgt || w.cd > 0) continue;
+      }
       if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) { w.mag = def.mag; run.events.push({ type: "reloaded" }); }
       if (offline || w.reloadT > 0 || w.cd > 0) continue;
       if (def.missile) {   // missiles ignore cover: they arc over it
@@ -406,8 +421,8 @@ export function update(run, dt, move) {
       w.kick = flak ? 3 : 1.5; w.aim = base;
       run.shake = Math.max(run.shake, flak ? 2.4 : 0.7);
       run.events.push({ type: flak ? "flak" : "shot" });
-      w.cd = def.interval;
-      if (--w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
+      w.cd = def.rotary ? def.interval + (def.rotary.fast - def.interval) * (w.spin || 0) ** 1.5 : def.interval;
+      if (!def.rotary && --w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
     } else if (def.family === "melee") {
       if (offline || w.cd > 0) continue;
       const reach = def.reach * (1 + s.rangeMul) + run.chassis.radius;
@@ -474,7 +489,7 @@ export function update(run, dt, move) {
     const plans = cap.charge >= 1 ? energy.map((w) => [w, plan(run, w)]) : [];
     if (plans.length) cap.hold += dt;
     if (plans.some(([, pl]) => pl.ready)) {
-      for (const [w, pl] of plans) discharge(run, w, pl.aim);
+      for (const [w, pl] of plans) discharge(run, w, pl.aim, pl);
       cap.vent = cap.ventMax = times.vent; cap.hold = 0;
       run.events.push({ type: "vent", dur: times.vent });
       run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
@@ -743,6 +758,16 @@ function plan(run, w) {
     const t = threat(hits);
     return { ready: mode === "nearest" ? t > 0 : t >= need || (mode === "heavies" && hits.some(isHeavy)) };
   }
+  if (def.kind === "arc") {   // the best place to start a chain: try the 8 nearest in range
+    const starts = run.enemies.filter((e) => !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < range + e.d.r)
+      .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).slice(0, 8);
+    if (!starts.length) return { ready: false, aim: p.aim };
+    if (mode === "nearest") return { ready: true, aim: Math.atan2(starts[0].y - p.y, starts[0].x - p.x), start: starts[0] };
+    let best = null;
+    for (const e of starts) { const t = threat(arcChain(run, e, def).hit); if (!best || t > best.t) best = { e, t }; }
+    const heavy = mode === "heavies" && starts.some(isHeavy);
+    return { ready: heavy || best.t >= need, aim: Math.atan2(best.e.y - p.y, best.e.x - p.x), start: heavy ? starts.find(isHeavy) : best.e };
+  }
   // beam candidates: up to 40 nearest enemies in range; each defines a line through it
   const cands = run.enemies
     .filter((e) => !e.dead)
@@ -765,9 +790,41 @@ function plan(run, w) {
   return { ready: !!heavy || best.t >= need, aim: best.a };
 }
 
-function discharge(run, w, aim) {
+/** Lightning's path from a first enemy: nearest un-struck enemy within reach each jump; when none is in
+ *  reach, an unbroken lamp post carries it on (a jump with no hit). */
+function arcChain(run, start, def) {
+  const hit = [start], pts = [[start.x, start.y - (start.d.flying ? (start.d.alt ?? FLY_ALT) : 4)]], seen = new Set(hit), lamps = new Set();
+  let cx = start.x, cy = start.y;
+  for (let j = 1; j < def.chains; j++) {
+    let best = null, bd = def.jump;
+    for (const e of run.enemies) { if (e.dead || seen.has(e)) continue; const d = Math.hypot(e.x - cx, e.y - cy); if (d < bd) { bd = d; best = e; } }
+    if (best) { seen.add(best); hit.push(best); cx = best.x; cy = best.y; pts.push([cx, cy - (best.d.flying ? (best.d.alt ?? FLY_ALT) : 4)]); continue; }
+    let lamp = null, ld = def.jump;
+    for (const pr of run.city.props) { if (pr.type !== "lamp" || pr.broken || lamps.has(pr)) continue; const d = Math.hypot(pr.x - cx, pr.y - cy); if (d < ld) { ld = d; lamp = pr; } }
+    if (!lamp) break;
+    lamps.add(lamp); cx = lamp.x; cy = lamp.y; pts.push([cx, cy - 12]);
+  }
+  return { hit, pts };
+}
+
+function discharge(run, w, aim, pl) {
   const def = WEAPONS[w.key], p = run.player, s = run.stats, dmg = weaponDmg(run, w);
   const range = def.range * (1 + s.rangeMul);
+  if (def.kind === "arc") {
+    const start = pl?.start && !pl.start.dead ? pl.start : nearestEnemy(run, range);
+    if (!start) return;
+    const { hit, pts } = arcChain(run, start, def), m = mountPoint(run, run.weapons.indexOf(w));
+    hit.forEach((e, i) => { hitEnemy(run, e, dmg * def.falloff ** i, 0, 0); e.stunT = Math.max(e.stunT || 0, def.stun); });
+    for (const [x, y] of pts) for (let k = 0; k < 4; k++) {
+      const a = run.rand() * Math.PI * 2, v = 30 + run.rand() * 50;
+      run.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.25, max: 0.25, color: run.rand() < 0.5 ? "#e8fbff" : "#6fd6ff", size: 1, spark: true, energy: true });
+    }
+    run.fx.push({ type: "arc", pts: [[m.x + Math.cos(aim ?? p.aim) * def.barrel, m.y + Math.sin(aim ?? p.aim) * def.barrel], ...pts], t: 0.3, max: 0.3 });
+    p.aim = Math.atan2(start.y - p.y, start.x - p.x);
+    run.shake = Math.max(run.shake, 3);
+    run.events.push({ type: "arc" });
+    return;
+  }
   if (def.kind === "nova") {
     near(p.x, p.y, range + 20, (e) => {
       const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;

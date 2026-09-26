@@ -546,6 +546,16 @@ export function createRenderer(canvas) {
         g.fillStyle = "#ffffff";
         circlePx(g, X(f.x), Y(f.y - 3), f.reach - 1, f.a - spread / 2.6, f.a + spread / 2.6);
         if (f.heavy) circlePx(g, X(f.x), Y(f.y - 3), f.reach - 2, f.a - spread / 4, f.a + spread / 4);
+      } else if (f.type === "arc") {   // lightning between the struck: re-jittered every frame so it crackles
+        g.fillStyle = k > 0.5 ? "#ffffff" : "#9fe8ff";
+        for (let i = 1; i < f.pts.length; i++) {
+          const [x0, y0] = f.pts[i - 1], [x1, y1] = f.pts[i], n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 7));
+          let px = x0, py = y0;
+          for (let s = 1; s <= n; s++) {
+            const last = s === n, nx = x0 + ((x1 - x0) * s) / n + (last ? 0 : (Math.random() - 0.5) * 7), ny = y0 + ((y1 - y0) * s) / n + (last ? 0 : (Math.random() - 0.5) * 7);
+            linePx(g, X(px), Y(py), X(nx), Y(ny)); px = nx; py = ny;
+          }
+        }
       } else if (f.type === "muzzle") {
         // Verhoeven / Aliens: a jagged star that's different every shot (f.s), full on the first
         // frames and a smaller stutter after, so sustained fire strobes
@@ -641,6 +651,9 @@ export function createRenderer(canvas) {
       } else if (f.type === "muzzle") {
         const r = f.key === "flak" ? 22 : 13; g.drawImage(glowOf(r, k > 0.45 ? "#8a6420" : "#4a3410"), X(f.x) - r, Y(f.y) - r);
         if (f.key === "flak" && k > 0.6) { g.fillStyle = "rgba(255, 190, 110, 0.07)"; g.fillRect(0, 0, buf.width, buf.height); }   // the whole street flinches
+      } else if (f.type === "arc") {
+        const gl = glowOf(8, k > 0.5 ? "#2a6a8a" : "#143a4a");
+        for (let i = 1; i < f.pts.length; i++) for (let s = 0; s <= 3; s++) { const [x0, y0] = f.pts[i - 1], [x1, y1] = f.pts[i]; g.drawImage(gl, X(x0 + ((x1 - x0) * s) / 3) - 8, Y(y0 + ((y1 - y0) * s) / 3) - 8); }
       } else if (f.type === "punch" && k > 0.6) {
         g.drawImage(glowOf(10, "#4a4438"), X(f.x) - 10, Y(f.y - 3) - 10);
       } else if (f.type === "boom" && k > 0.55) {
@@ -934,6 +947,7 @@ export function createRenderer(canvas) {
       else if (f.type === "punch") put(26 * k + 6, "#8a7a60", f.x, f.y);
       else if (f.type === "flare") put(30 * k + 6, "#6a4aa8", f.x, f.y);
       else if (f.type === "launch") put(12, "#7a5a28", f.x, f.y);
+      else if (f.type === "arc") for (const [x, y] of f.pts) put(30 * (0.5 + k * 0.5), "#3a8ab8", x, y);
       else if (f.type === "boom") put(f.r * 5 * (0.4 + k), k > 0.5 ? "#b8601e" : "#6a2e10", f.x, f.y);
       else if (f.type === "beam") {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 8);
@@ -1028,7 +1042,8 @@ export function createRenderer(canvas) {
       const lunge = w.swingT > 0 ? Math.sin((1 - w.swingT / (w.key === "fist" ? 0.16 : 0.1)) * Math.PI) * (w.key === "fist" ? 9 : 4) : 0;
       const off = lunge - (w.kick || 0);
       const frames = wspr[w.key] || wspr.autocannon;
-      const fr = w.key === "chainblade" ? Math.floor(run.time * 24) % 2 : w.key === "pyre" ? (Math.random() < 0.5 ? 1 : 0) : 0;
+      const fr = w.key === "chainblade" ? Math.floor(run.time * 24) % 2 : w.key === "pyre" ? (Math.random() < 0.5 ? 1 : 0)
+        : w.key === "rotary" ? Math.floor(run.time * (4 + 44 * (w.spin || 0))) % 2 : 0;
       const ws = frames[fr % frames.length];
       const dim = offline || (venting && def.family === "energy");
       g.save();
@@ -1037,6 +1052,11 @@ export function createRenderer(canvas) {
       if (Math.cos(a) < 0) g.scale(1, -1);   // keep it right side up when aiming left
       g.drawImage(ws, -1, -(ws.height >> 1));
       if (dim) { g.globalAlpha = 0.65; g.drawImage(wdim[w.key][fr % frames.length], -1, -(ws.height >> 1)); g.globalAlpha = 1; }
+      if (w.key === "rotary" && (w.heat > 0.35 || w.reloadT > 0)) {   // the barrels glow as they heat
+        g.globalCompositeOperation = "lighter"; g.globalAlpha = w.reloadT > 0 ? 0.9 : Math.min(1, (w.heat - 0.35) * 1.6);
+        g.drawImage(glowOf(5, "#8a2a0a"), ws.width - 9, -5); g.fillStyle = "#ff6a2a"; g.fillRect(ws.width - 6, -1, 4, 1);
+        g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+      }
       g.restore();
     };
     composeMech(g, P, p, X, Y, fi,
