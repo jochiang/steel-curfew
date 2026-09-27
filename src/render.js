@@ -100,7 +100,7 @@ export function createRenderer(canvas) {
   const mechSet = (kind) => {
     if (!mechSets.has(kind)) {
       const m = { cold: mechParts(kind, false), hotA: mechParts(kind, true, 0), hotB: mechParts(kind, true, 1) };
-      const fl = (P) => ({ ...P, torso: Object.fromEntries(Object.entries(P.torso).map(([k, c]) => [k, flash(c)])), legs: Object.fromEntries(Object.entries(P.legs).map(([k, a]) => [k, a.map((c) => flash(c))])) });
+      const fl = (P, col) => ({ ...P, torso: Object.fromEntries(Object.entries(P.torso).map(([k, c]) => [k, flash(c, col)])), legs: Object.fromEntries(Object.entries(P.legs).map(([k, a]) => [k, a.map((c) => flash(c, col))])) });
       m.flash = fl(m.cold);
       m.xray = flash(mechFrames(kind, false)[0], "#7fd8ff");
       m.glow = { cold: mechParts(kind, false, 0, true), hotA: mechParts(kind, true, 0, true), hotB: mechParts(kind, true, 1, true) };
@@ -1193,6 +1193,12 @@ export function createRenderer(canvas) {
     composeMech(g, P, p, X, Y, fi,
       () => { for (const it of weapons) if (it.mp.behind) drawWeapon(it); },
       () => { for (const it of weapons) if (!it.mp.behind) drawWeapon(it); });
+    if (venting) {   // heat: a faint warm glow off the torso (additive, so it brightens rather than muddies), strongest as the vent starts
+      const k = run.cap.vent / (run.cap.ventMax || 1), r = 12;
+      g.globalCompositeOperation = "lighter"; g.globalAlpha = (0.35 + 0.5 * k) * (0.75 + 0.25 * Math.sin(t * 14));
+      g.drawImage(glowOf(r, "#5a220a"), X(p.x) - r, Y(p.y) - 6 - r);
+      g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+    }
     const L = mechLights(run, t), on = power.lit;   // the light package, on top of the torso
     for (const q of L.px) { g.fillStyle = on || !q.lit ? q.col : "#3a3e48"; g.fillRect(X(q.x), Y(q.y), 1, 1); }   // off: dark glass
     if (on) {

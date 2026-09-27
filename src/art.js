@@ -176,7 +176,7 @@ function legsRows(spec, W, liftL, liftR) {
 export function mechFrames(kind, hot, ventPhase = 0, glow = false) {
   const m = MECHS[kind] || MECHS.warden;
   const vent = hot ? (ventPhase ? "#ffd27a" : "#ff8a4c") : "#20242c";
-  const p = pal(hot ? "hot" : m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff", s: hot ? "#ffb08f" : m.stripe });
+  const p = pal(m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff", s: m.stripe });   // venting: the frame keeps its colours, only the grilles glow (user: "a little subtler")
   const only = glow ? (hot ? "bcvqQ" : "bcqQ") : null;
   const torso = build(m.torso, p, { sym: true, light: true, patch: m.glint.map(([x, y]) => [x, y, "c"]), only });
   const H = m.legY + m.leg.rows.length + m.foot.rows.length + 1;
@@ -198,7 +198,7 @@ export const MECH_KINDS = Object.keys(MECHS);
 export function mechParts(kind, hot, ventPhase = 0, glow = false) {
   const m = MECHS[kind] || MECHS.warden;
   const vent = hot ? (ventPhase ? "#ffd27a" : "#ff8a4c") : "#20242c";
-  const p = pal(hot ? "hot" : m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff", s: hot ? "#ffb08f" : m.stripe });
+  const p = pal(m.ramp, { v: vent, a: m.visor[0], b: m.visor[1], c: m.visor[2], q: "#4fb6de", Q: "#bff4ff", s: m.stripe });   // venting: the frame keeps its colours, only the grilles glow (user: "a little subtler")
   const only = glow ? (hot ? "bcvqQ" : "bcqQ") : null;
   const front = build(m.torso, p, { sym: true, light: true, patch: m.glint.map(([x, y]) => [x, y, "c"]), only });
   const v = VIEWS[kind] || VIEWS.warden, legsH = m.leg.rows.length + m.foot.rows.length;
