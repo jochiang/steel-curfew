@@ -327,6 +327,7 @@ export function createRenderer(canvas) {
     }
     g.drawImage(floor, ox, oy);
     drawSunShadows(city, d, ox, oy);
+    drawNapalmGround(run, X, Y, dt, inView);
 
     // ---- daylight: a few soft floor glows (at night the light map does this job)
     if (!lit) {
@@ -495,22 +496,20 @@ export function createRenderer(canvas) {
 
     // ---- everything below glows on its own, so it's drawn after the light map
     drawLightning(X, Y);
-    for (const pl of run.pools || []) {   // napalm: a flat, flickering pool of fire (3/4 view: squashed), spitting flames
+    for (const pl of run.pools || []) {   // napalm flames: separate tongues licking up out of the slick, each on its own flicker
       if (!inView(pl.x - pl.r, pl.y - pl.r, pl.x + pl.r, pl.y + pl.r)) continue;
-      const k = pl.t / pl.max, age = pl.max - pl.t, R = pl.r * Math.min(1, 0.4 + age * 4) * (k < 0.25 ? 0.6 + k * 1.6 : 1), n = Math.round(R * R * 0.3 * Math.min(1, k * 3));
-      const cx = X(pl.x), cy = Y(pl.y), ry = Math.round(R * 0.6);
-      for (const [f, col, al] of [[1, "#5a1206", 0.85], [0.72, "#a8340e", 0.9], [0.42, "#e8702a", 0.9]]) {   // a burning slick: dark rim, hot core
-        g.fillStyle = col; g.globalAlpha = al * Math.min(1, k * 4);
-        const rr = R * f, rry = Math.max(1, Math.round(ry * f));
-        for (let dy = -rry; dy <= rry; dy++) { const w = Math.round(rr * Math.sqrt(1 - (dy / (rry + 0.5)) ** 2) + (Math.random() < 0.3 ? 1 : 0)); g.fillRect(cx - w, cy + dy, w * 2 + 1, 1); }
+      const P = poolShape(pl), k = pl.t / pl.max, fuel = Math.min(1, k * 2.2) * Math.min(1, (pl.max - pl.t) * 5);
+      for (const f of P.tongues) {
+        if (f.gate > fuel) continue;   // the fire thins out as the fuel burns off
+        const flick = Math.abs(Math.sin(t * f.rate + f.ph)) * 0.7 + Math.abs(Math.sin(t * f.rate * 2.3 + f.ph * 3)) * 0.3;
+        const h = Math.round((2.5 + f.tall * 7) * (0.4 + 0.6 * flick) * (0.55 + 0.45 * fuel)), x = X(pl.x + f.x), y = Y(pl.y + f.y);
+        for (let i = 0; i < h; i++) {   // root to tip: white-hot, yellow, orange, a dark red lick, sway at the top
+          const u = i / Math.max(1, h - 1), sway = i > 1 ? Math.round(Math.sin(t * f.rate * 0.7 + f.ph + i) * 0.6) : 0;
+          g.fillStyle = u < 0.2 ? "#fff4d6" : u < 0.45 ? "#ffd36b" : u < 0.75 ? "#ff8a2a" : "#b8361a";
+          g.fillRect(x + sway, y - i, i < h * 0.55 && f.tall > 0.35 ? 2 : 1, 1);
+        }
       }
-      g.globalAlpha = 1;
-      for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * R, hot = d < R * 0.45;
-        g.fillStyle = hot ? (Math.random() < 0.5 ? "#fff1b0" : "#ffd36b") : Math.random() < 0.55 ? "#ffb347" : Math.random() < 0.6 ? "#e8602c" : "#8a2a0a";
-        g.fillRect(X(pl.x + Math.cos(a) * d), Y(pl.y + Math.sin(a) * d * 0.6), 1, 1);
-      }
-      if (Math.random() < dt * 26 * k) flame(pl.x + (Math.random() - 0.5) * R * 1.4, pl.y + (Math.random() - 0.5) * R * 0.8);
+      if (Math.random() < dt * 10 * fuel) flame(pl.x + (Math.random() - 0.5) * pl.r, pl.y + (Math.random() - 0.5) * pl.r * 0.5);
     }
     // the Crusher's lane: a rectangle on the street that fills toward the far end as the furnace charges
     for (const e of run.enemies) {
@@ -692,7 +691,7 @@ export function createRenderer(canvas) {
     // ---- bloom
     g.globalCompositeOperation = "lighter";
     const bloom = 1 + 0.6 * d;
-    for (const pl of run.pools || []) { const r = Math.round(pl.r * 1.3); g.drawImage(glowOf(r, "#5a2a0a"), X(pl.x) - r, Y(pl.y) - r); }
+    for (const pl of run.pools || []) { const r = Math.round(pl.r * 1.1); g.drawImage(glowOf(r, "#3a1a08"), X(pl.x) - r, Y(pl.y - 3) - r); }
     for (const f of run.fx) if (f.type === "furnaceBeam") { const gl = glowOf(16, f.t / f.max > 0.5 ? "#7a3010" : "#3a1606"); for (let s = 0; s <= f.len; s += 14) g.drawImage(gl, X(f.x + Math.cos(f.a) * s) - 16, Y(f.y + Math.sin(f.a) * s) - 16); }
     let halos = 0;   // hot particles glow (capped: a big fire can throw a few hundred)
     for (const q of run.parts) {
@@ -783,6 +782,47 @@ export function createRenderer(canvas) {
     for (const [o, k] of [[0, 1], [0.35, 1], [0.35, 0.69], [0.65, 0.69], [0.65, 0.375], [1, 0.375]]) grad.addColorStop(o, step(k));
     lg.fillStyle = grad; lg.fillRect(x - R, y - R, R * 2, R * 2);
     lg.restore();
+  }
+
+  // ---- napalm (user: "a little spicy fanta right now"): not a flat orange disc but a black, oily, ragged
+  // slick (a few overlapping blobs) with patchy flame tongues on it and dark smoke coming off; when it burns
+  // out it leaves a scorch mark on the street for the rest of the run.
+  const poolShapes = new WeakMap(), seenPools = new Set();
+  function poolShape(pl) {
+    let P = poolShapes.get(pl);
+    if (P) return P;
+    const r = mulberry(pl.seed ?? Math.random()), blobs = [], tongues = [];
+    for (let i = 0; i < 5; i++) { const a = r() * Math.PI * 2, d = i ? pl.r * (0.25 + r() * 0.45) : 0; blobs.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.6, r: pl.r * (i ? 0.35 + r() * 0.3 : 0.6) }); }
+    for (let i = 0; i < Math.round(pl.r * 1.3); i++) {
+      const bl = blobs[Math.floor(r() * blobs.length)], a = r() * Math.PI * 2, d = Math.sqrt(r()) * bl.r * 0.85;
+      tongues.push({ x: bl.x + Math.cos(a) * d, y: bl.y + Math.sin(a) * d * 0.6, tall: r(), rate: 7 + r() * 9, ph: r() * 6, gate: r() });
+    }
+    P = { blobs, tongues }; poolShapes.set(pl, P);
+    return P;
+  }
+  const blobRows = (c, x, y, rr, col, alpha) => {   // a squashed disc (3/4 view) as pixel rows, ragged at the edge
+    const ry = Math.max(1, Math.round(rr * 0.6));
+    c.fillStyle = col; c.globalAlpha = alpha;
+    for (let dy = -ry; dy <= ry; dy++) { const w = Math.round(rr * Math.sqrt(Math.max(0, 1 - (dy / (ry + 0.5)) ** 2))); c.fillRect(Math.round(x) - w, Math.round(y) + dy, w * 2 + 1, 1); }
+    c.globalAlpha = 1;
+  };
+  function drawNapalmGround(run, X, Y, dt, inView) {
+    const live = new Set(run.pools || []);
+    for (const pl of seenPools) if (!live.has(pl)) {   // burnt out: scorch the street (the floor keeps it for the run)
+      seenPools.delete(pl);
+      if (fg) for (const b of poolShape(pl).blobs) blobRows(fg, pl.x + b.x, pl.y + b.y, b.r, "#0c0a08", 0.28);
+    }
+    for (const pl of live) {
+      seenPools.add(pl);
+      if (!inView(pl.x - pl.r, pl.y - pl.r, pl.x + pl.r, pl.y + pl.r)) continue;
+      const P = poolShape(pl), grow = Math.min(1, 0.35 + (pl.max - pl.t) * 5), k = pl.t / pl.max;
+      for (const b of P.blobs) blobRows(g, X(pl.x + b.x * grow), Y(pl.y + b.y * grow), b.r * grow, "#120c09", 0.82);          // oily black slick
+      for (const b of P.blobs) blobRows(g, X(pl.x + b.x * grow), Y(pl.y + b.y * grow), b.r * grow * 0.6, "#3a1a0e", 0.55 * k);   // the burning heart
+      const r = mulberry(pl.seed ?? 0.5);
+      g.fillStyle = "#5a4a3e";   // a few glossy specks on the oil
+      for (let i = 0; i < 6; i++) g.fillRect(X(pl.x + (r() - 0.5) * pl.r * 1.4 * grow), Y(pl.y + (r() - 0.5) * pl.r * 0.8 * grow), 1, 1);
+      if (Math.random() < dt * 7 * Math.min(1, k * 2)) smoke.push({ x: pl.x + (Math.random() - 0.5) * pl.r, y: pl.y - 4, t: 1.6, max: 1.6 });   // dark smoke
+    }
   }
 
   // ---- the Hive Block's growth: pulsing magenta nodes and veins over the roof, spreading as the hive weakens
@@ -1016,7 +1056,7 @@ export function createRenderer(canvas) {
       if (b.w < 0.15 || !inView(x - 40, y - 40, x + 40, y + 40)) continue;
       put(Math.min(44, 7 + 8 * Math.sqrt(b.w)), b.energy > b.fire && b.energy > b.spark ? "#5a3a9a" : b.fire >= b.spark ? "#9a4a16" : "#8a7430", x, y);
     }
-    for (const pl of run.pools || []) put(pl.r * 2.6 * (0.88 + Math.random() * 0.12) * Math.min(1, pl.t / pl.max * 3), "#b0561a", pl.x, pl.y);   // napalm lights the street
+    for (const pl of run.pools || []) put(pl.r * 2.6 * (0.8 + Math.random() * 0.2) * Math.min(1, pl.t / pl.max * 3), "#a04a18", pl.x, pl.y - 3);   // napalm lights the street, flickering
     for (const f of run.fx) if (f.type === "furnaceBeam") for (let s = 0; s <= f.len; s += 12) put(36 * (0.4 + 0.6 * f.t / f.max), "#c0601c", f.x + Math.cos(f.a) * s, f.y + Math.sin(f.a) * s);
     for (const e of run.enemies) if (e.beamAim != null) { const o = beamOrigin(e), k = 1 - e.beamWarn / e.d.beam.warn; put(14 + 30 * k, "#a0400c", o.x, o.y); }   // the furnace brightens as it charges
     // shells, missiles, fire

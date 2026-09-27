@@ -614,7 +614,7 @@ export function update(run, dt, move) {
     if ((l.t += dt) < l.dur) continue;
     l.done = true;
     blastAt(run, l.tx, l.ty, l.N.radius * 0.6, { enemies: l.dmg, src: "napalm" });
-    run.pools.push({ x: l.tx, y: l.ty, r: l.N.radius, t: l.N.dur, max: l.N.dur, dps: l.dmg * l.N.burn, bb: l.N.buildingBurn, tick: 0 });
+    run.pools.push({ x: l.tx, y: l.ty, r: l.N.radius, t: l.N.dur, max: l.N.dur, dps: l.dmg * l.N.burn, bb: l.N.buildingBurn, tick: 0, seed: rand() });
     run.events.push({ type: "napalm" });
     run.shake = Math.max(run.shake, 1.5);
   }
