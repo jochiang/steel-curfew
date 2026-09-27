@@ -91,6 +91,8 @@ const SFX = {
   },
   strafe: () => { hiss(1.1, 0.1, { type: "bandpass", f0: 300, f1: 900, q: 1.2, attack: 0.3 }); tone("sawtooth", 55, 80, 1.0, 0.06, { attack: 0.3 }); },
   hive: () => gate("hive", 900) && (hiss(0.4, 0.06, { type: "bandpass", f0: 500, f1: 180, q: 3 }), tone("sine", 70, 50, 0.4, 0.06)),
+  napalmLaunch: () => gate("napalmL", 120) && (tone("square", 160, 90, 0.08, 0.08), hiss(0.06, 0.08, { type: "lowpass", f0: 700 })),
+  napalm: () => gate("napalm", 90) && (hiss(0.5, 0.16, { type: "lowpass", f0: 1400, f1: 300, attack: 0.01 }), tone("sine", 80, 40, 0.3, 0.14), hiss(0.9, 0.05, { f0: 3000, q: 0.7, when: 0.1 })),
   overheat: () => { hiss(0.9, 0.12, { type: "highpass", f0: 2500, attack: 0.02 }); tone("square", 180, 90, 0.12, 0.07); },
   reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
   casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),

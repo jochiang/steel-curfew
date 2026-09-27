@@ -83,8 +83,14 @@ export const WEAPONS = {
   rotary: {
     name: "Rotary Cannon", barrel: 10, family: "ballistic", weight: 9, price: 26,
     desc: "Spins up the longer it fires, from a slow thump to a buzzsaw. Hold full tilt too long and it overheats.",
-    dmg: 2.2, range: 125, interval: 0.3, speed: 340, spread: 0.09, pellets: 1,
+    dmg: 2.5, range: 125, interval: 0.3, speed: 340, spread: 0.09, pellets: 1,
     rotary: { fast: 0.045, spinUp: 1.8, spinDown: 1.2, heatTime: 4.5, coolTime: 2.5, overheat: 2.4 },
+  },
+  napalm: {
+    name: "Napalm Launcher", barrel: 7, family: "ballistic", weight: 7, price: 24,
+    desc: "Lobs canisters into the thickest crowd. Each bursts into a pool of fire that burns whatever stands in it.",
+    dmg: 5, range: 150, interval: 0.9, mag: 2, reload: 2.6,
+    napalm: { flight: 0.75, radius: 22, dur: 3.5, burn: 0.9, buildingBurn: 3 },   // pool burn dps = weapon dmg x burn
   },
   lance: {
     name: "Particle Lance", barrel: 10, family: "energy", weight: 8, price: 28, heat: 50,

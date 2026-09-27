@@ -64,7 +64,7 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     city: generateCity(seed),   // persists for the whole run: damage piles up wave after wave
     field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
-    enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [],
+    enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [], lobs: [], pools: [],
     shake: 0, freeze: 0, spawnT: 0, bossSpawned: false, clearing: 0,
     endless: false, curfew: 0,   // stayed out past curfew (endless), and how many waves held there
     events: [],   // for sound; drained by the page, capped here so headless runs don't grow it
@@ -106,7 +106,7 @@ export function startWave(run) {
   Object.assign(p, { x: run.city.spawn.x, y: run.city.spawn.y, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
   Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0, spin: 0, heat: 0 });
-  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles"]) run[k].length = 0;
+  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles", "lobs", "pools"]) (run[k] ||= []).length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
 }
@@ -422,6 +422,17 @@ export function update(run, dt, move) {
       }
       if (w.reloadT > 0 && (w.reloadT -= dt) <= 0) { w.mag = def.mag; run.events.push({ type: "reloaded" }); }
       if (offline || w.reloadT > 0 || w.cd > 0) continue;
+      if (def.napalm) {   // lob a canister over cover into the thickest crowd
+        const t = densest(run, def.range * (1 + s.rangeMul), def.napalm.radius);
+        if (!t) continue;
+        const m = mountPoint(run, run.weapons.indexOf(w)), a0 = Math.atan2(t.y - p.y, t.x - p.x);
+        run.lobs.push({ x0: m.x, y0: p.y, tx: t.x + (rand() - 0.5) * 6, ty: t.y + (rand() - 0.5) * 6, t: 0, dur: def.napalm.flight, h0: p.y - m.y, dmg: weaponDmg(run, w), N: def.napalm });
+        run.events.push({ type: "napalmLaunch" });
+        run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
+        w.kick = 2.5; w.aim = a0; w.cd = def.interval;
+        if (--w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
+        continue;
+      }
       if (def.missile) {   // missiles ignore cover: they arc over it
         const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
         if (!t) continue;
@@ -587,6 +598,33 @@ export function update(run, dt, move) {
     if (solidAt(city, b.x, b.y)) b.dead = true;
   }
   run.bolts = run.bolts.filter((b) => !b.dead);
+
+  // --- napalm: canisters arc over everything and burst into pools of fire
+  for (const l of run.lobs) {
+    if ((l.t += dt) < l.dur) continue;
+    l.done = true;
+    blastAt(run, l.tx, l.ty, l.N.radius * 0.6, { enemies: l.dmg, src: "napalm" });
+    run.pools.push({ x: l.tx, y: l.ty, r: l.N.radius, t: l.N.dur, max: l.N.dur, dps: l.dmg * l.N.burn, bb: l.N.buildingBurn, tick: 0 });
+    run.events.push({ type: "napalm" });
+    run.shake = Math.max(run.shake, 1.5);
+  }
+  run.lobs = run.lobs.filter((l) => !l.done);
+  for (const pl of run.pools) {
+    pl.t -= dt;
+    near(pl.x, pl.y, pl.r + 16, (e) => {   // whatever stands (or hovers low) in it keeps burning
+      if (e.dead || (e.d.flying && altOf(e) > 12) || Math.hypot(e.x - pl.x, (e.y - pl.y) * 1.4) > pl.r + e.d.r * 0.5) return;
+      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps);
+    });
+    if ((pl.tick -= dt) <= 0) {   // and it catches the buildings it touches
+      pl.tick = 0.5;
+      for (const b of run.city.buildings) {
+        if (b.dead) continue;
+        const nx = Math.max(b.x * TILE, Math.min(pl.x, (b.x + b.w) * TILE)), ny = Math.max(b.y * TILE, Math.min(pl.y, (b.y + b.h) * TILE));
+        if (Math.hypot(nx - pl.x, ny - pl.y) < pl.r) b.burn = Math.max(b.burn || 0, pl.bb);
+      }
+    }
+  }
+  run.pools = run.pools.filter((pl) => pl.t > 0);
 
   // --- artillery shells: fly over everything, land where they were aimed
   for (const sh of run.shells) {
@@ -807,6 +845,14 @@ function processCollapses(run) {
 
 // how far away an enemy is for targeting: a hive counts from its building's walls, not its centre
 const reachOf = (e, p) => Math.max(0, Math.hypot(e.x - p.x, e.y - p.y) - (e.d.hive ? e.d.r : 0));
+/** The ground enemy in range with the most company within r (napalm's target) */
+function densest(run, range, r) {
+  const p = run.player, cands = run.enemies.filter((e) => !e.dead && !e.d.flying && !e.d.hive && reachOf(e, p) < range).slice(0, 40);
+  let best = null, bn = -1;
+  for (const e of cands) { let n = 0; for (const q of cands) if (Math.hypot(q.x - e.x, q.y - e.y) < r) n += isHeavy(q) ? 3 : 1; if (n > bn) { bn = n; best = e; } }
+  return best || nearestEnemy(run, range);
+}
+
 function nearestEnemy(run, range) {
   const p = run.player;
   let best = null, bd = range;
@@ -1038,7 +1084,7 @@ function clearWave(run) {
   const MAX_POPS = 45;
   order.forEach((e, i) => { e.doomAt = (i / Math.max(1, order.length)) * (CLEAR_TIME - 0.45); e.bigPop = i % Math.max(1, Math.ceil(order.length / MAX_POPS)) === 0; });
   if (run.enemies.length) run.events.push({ type: "boom", r: 10 });
-  for (const k of ["bolts", "shots", "marks", "shells", "missiles"]) run[k].length = 0;
+  for (const k of ["bolts", "shots", "marks", "shells", "missiles", "lobs"]) run[k].length = 0;
   run.shake = Math.max(run.shake, 4);
   run.events.push({ type: "waveClear" });
 }

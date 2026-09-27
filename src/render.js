@@ -445,6 +445,12 @@ export function createRenderer(canvas) {
       g.fillStyle = "#c9ced6"; g.fillRect(x, y, 1, 1);
       g.fillStyle = "#ffb347"; g.fillRect(X(m.x - Math.cos(a) * 2), Y(m.y - m.z - Math.sin(a) * 2), 1, 1);
     }
+    for (const l of run.lobs || []) {   // napalm canisters: a short, high arc
+      const k = l.t / l.dur, gx = l.x0 + (l.tx - l.x0) * k, gy = l.y0 + (l.ty - l.y0) * k, x = X(gx), y = Y(gy - l.h0 * (1 - k) - Math.sin(Math.PI * k) * 30);
+      g.fillStyle = "rgba(5,6,10,0.35)"; g.fillRect(X(gx) - 1, Y(gy), 3, 1);
+      g.fillStyle = OUTLINE; g.fillRect(x - 1, y - 2, 3, 5); g.fillStyle = "#8a6a2a"; g.fillRect(x, y - 1, 1, 3);
+      g.fillStyle = Math.floor(t * 20) % 2 ? "#ffb347" : "#ff6a3c"; g.fillRect(x, y + 2, 1, 1);
+    }
     for (const sh of run.shells) {
       const k = sh.t / sh.dur, x = X(sh.x0 + (sh.tx - sh.x0) * k), y = Y(sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46);
       g.fillStyle = OUTLINE; g.fillRect(x - 2, y - 1, 5, 3); g.fillRect(x - 1, y - 2, 3, 5);
@@ -486,6 +492,23 @@ export function createRenderer(canvas) {
 
     // ---- everything below glows on its own, so it's drawn after the light map
     drawLightning(X, Y);
+    for (const pl of run.pools || []) {   // napalm: a flat, flickering pool of fire (3/4 view: squashed), spitting flames
+      if (!inView(pl.x - pl.r, pl.y - pl.r, pl.x + pl.r, pl.y + pl.r)) continue;
+      const k = pl.t / pl.max, age = pl.max - pl.t, R = pl.r * Math.min(1, 0.4 + age * 4) * (k < 0.25 ? 0.6 + k * 1.6 : 1), n = Math.round(R * R * 0.3 * Math.min(1, k * 3));
+      const cx = X(pl.x), cy = Y(pl.y), ry = Math.round(R * 0.6);
+      for (const [f, col, al] of [[1, "#5a1206", 0.85], [0.72, "#a8340e", 0.9], [0.42, "#e8702a", 0.9]]) {   // a burning slick: dark rim, hot core
+        g.fillStyle = col; g.globalAlpha = al * Math.min(1, k * 4);
+        const rr = R * f, rry = Math.max(1, Math.round(ry * f));
+        for (let dy = -rry; dy <= rry; dy++) { const w = Math.round(rr * Math.sqrt(1 - (dy / (rry + 0.5)) ** 2) + (Math.random() < 0.3 ? 1 : 0)); g.fillRect(cx - w, cy + dy, w * 2 + 1, 1); }
+      }
+      g.globalAlpha = 1;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * R, hot = d < R * 0.45;
+        g.fillStyle = hot ? (Math.random() < 0.5 ? "#fff1b0" : "#ffd36b") : Math.random() < 0.55 ? "#ffb347" : Math.random() < 0.6 ? "#e8602c" : "#8a2a0a";
+        g.fillRect(X(pl.x + Math.cos(a) * d), Y(pl.y + Math.sin(a) * d * 0.6), 1, 1);
+      }
+      if (Math.random() < dt * 26 * k) flame(pl.x + (Math.random() - 0.5) * R * 1.4, pl.y + (Math.random() - 0.5) * R * 0.8);
+    }
     // spawn telegraphs: a reticle that closes in
     for (const m of run.marks) {
       const k = 1 - m.t / m.max, big = m.type === "crusher" || m.type === "hive", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
@@ -647,6 +670,7 @@ export function createRenderer(canvas) {
     // ---- bloom
     g.globalCompositeOperation = "lighter";
     const bloom = 1 + 0.6 * d;
+    for (const pl of run.pools || []) { const r = Math.round(pl.r * 1.3); g.drawImage(glowOf(r, "#5a2a0a"), X(pl.x) - r, Y(pl.y) - r); }
     let halos = 0;   // hot particles glow (capped: a big fire can throw a few hundred)
     for (const q of run.parts) {
       if (!(q.spark || q.fire) || q.t / q.max < 0.3 || ++halos > 220) continue;
@@ -969,6 +993,7 @@ export function createRenderer(canvas) {
       if (b.w < 0.15 || !inView(x - 40, y - 40, x + 40, y + 40)) continue;
       put(Math.min(44, 7 + 8 * Math.sqrt(b.w)), b.energy > b.fire && b.energy > b.spark ? "#5a3a9a" : b.fire >= b.spark ? "#9a4a16" : "#8a7430", x, y);
     }
+    for (const pl of run.pools || []) put(pl.r * 2.6 * (0.88 + Math.random() * 0.12) * Math.min(1, pl.t / pl.max * 3), "#b0561a", pl.x, pl.y);   // napalm lights the street
     // shells, missiles, fire
     for (const sh of run.shells) { const k = sh.t / sh.dur; put(8, "#7a3a10", sh.x0 + (sh.tx - sh.x0) * k, sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46); put(sh.r + 4, "#3a0c08", sh.tx, sh.ty); }
     for (const m of run.missiles) put(8, "#7a4a18", m.x, m.y - m.z);
