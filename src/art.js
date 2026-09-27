@@ -467,7 +467,7 @@ export function fogTexture(color, size = 256, seed = 7, maxAlpha = 0.12) {
 // ---------------------------------------------------------------- weapons (mounted on the shoulders)
 // Drawn pointing right with the mount at the left edge, middle row; the renderer rotates them to
 // the aim. Chainblade has 2 frames (teeth crawl); pyre has a pilot-light flicker frame.
-const WEAPON_ART = {
+export const WEAPON_ART = {
   autocannon: [["oooooooo.", "o44333ooo", "o3222yyyo", "oooooooo."]],
   flak:       [["ooooooo", "o433oyo", "o322oyo", "o322oyo", "ooooooo"]],
   missiles:   [["oooooo", "o3kk3o", "o3kk3o", "o2kk2o", "o2kk2o", "oooooo"]],
@@ -478,6 +478,7 @@ const WEAPON_ART = {
   fist:       [["oooo...", "o33oooo", "o3344o5", "o3233o4", "o2222oo", "oooooo."]],
   chainblade: [["oooooooooooo.", "o32tTtTtTtTto", "oooooooooooo."], ["oooooooooooo.", "o32TtTtTtTtTo", "oooooooooooo."]],
   rotary:     [["ooooooooooo", "o43o4o4o4oo", "o322222222y", "o43o3o3o3oo", "ooooooooooo"], ["ooooooooooo", "o4o4o4o4ooo", "o32222222yy", "o4o3o3o3ooo", "ooooooooooo"]],
+  napalm:     [["oooooooo..", "o4433333oo", "o3kkkk32yo", "o3kkkk32yo", "o2222222oo", "oooooooo.."]],
   pyre:       [["oooo....", "orrooooo", "orr3322f", "oooooooo"], ["oooo....", "orrooooo", "orr3322F", "oooooooo"]],
 };
 export function weaponSprites() {

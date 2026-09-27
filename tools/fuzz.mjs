@@ -6,6 +6,12 @@ import { botMove } from "../src/bot.js";
 import { WEAPONS, MODULES, CHASSIS, PERKS } from "../src/content.js";
 import { mulberry32 } from "../src/rng.js";
 
+// every weapon and enemy needs its art (a weapon without a sprite once broke the renderer on a phone)
+const { WEAPON_ART } = await import("../src/art.js"), { ENEMIES } = await import("../src/content.js");
+const artSrc = (await import("node:fs")).readFileSync(new URL("../src/art.js", import.meta.url), "utf8");
+const noArt = [...Object.keys(WEAPONS).filter((k) => !WEAPON_ART[k]).map((k) => "weapon " + k), ...Object.keys(ENEMIES).filter((k) => !artSrc.includes(`case "${k}"`)).map((k) => "enemy " + k)];
+if (noArt.length) { console.log("MISSING ART:", noArt.join(", ")); process.exitCode = 1; }
+
 const RUNS = +(process.argv[2] || 300), seen = new Map();
 const pick = (r, a) => a[Math.floor(r() * a.length)];
 let ok = 0;

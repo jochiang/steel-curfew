@@ -291,6 +291,9 @@ export function createRenderer(canvas) {
   }
 
   function draw(run, dt, input) {
+    // a clean slate every frame: if the last one threw halfway (inside a rotate, a lighter blend, a low alpha),
+    // that must not leak into this one (a missing sprite once left the whole city drawn tilted)
+    for (const c of [g, lg, ctx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = "source-over"; }
     updateCamera(run, dt);
     syncFloor(run);
     const shake = run.shake > 0 ? run.shake : 0;
@@ -1139,7 +1142,7 @@ export function createRenderer(canvas) {
       g.rotate(a);
       if (Math.cos(a) < 0) g.scale(1, -1);   // keep it right side up when aiming left
       g.drawImage(ws, -1, -(ws.height >> 1));
-      if (dim) { g.globalAlpha = 0.65; g.drawImage(wdim[w.key][fr % frames.length], -1, -(ws.height >> 1)); g.globalAlpha = 1; }
+      if (dim) { g.globalAlpha = 0.65; g.drawImage((wdim[w.key] || wdim.autocannon)[fr % frames.length], -1, -(ws.height >> 1)); g.globalAlpha = 1; }
       if (w.key === "rotary" && (w.heat > 0.35 || w.reloadT > 0)) {   // the barrels glow as they heat
         g.globalCompositeOperation = "lighter"; g.globalAlpha = w.reloadT > 0 ? 0.9 : Math.min(1, (w.heat - 0.35) * 1.6);
         g.drawImage(glowOf(5, "#8a2a0a"), ws.width - 9, -5); g.fillStyle = "#ff6a2a"; g.fillRect(ws.width - 6, -1, 4, 1);
