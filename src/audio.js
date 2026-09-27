@@ -93,6 +93,8 @@ const SFX = {
   hive: () => gate("hive", 900) && (hiss(0.4, 0.06, { type: "bandpass", f0: 500, f1: 180, q: 3 }), tone("sine", 70, 50, 0.4, 0.06)),
   napalmLaunch: () => gate("napalmL", 120) && (tone("square", 160, 90, 0.08, 0.08), hiss(0.06, 0.08, { type: "lowpass", f0: 700 })),
   napalm: () => gate("napalm", 90) && (hiss(0.5, 0.16, { type: "lowpass", f0: 1400, f1: 300, attack: 0.01 }), tone("sine", 80, 40, 0.3, 0.14), hiss(0.9, 0.05, { f0: 3000, q: 0.7, when: 0.1 })),
+  beamCharge: (e) => { const d = e.dur ?? 1.1; tone("sawtooth", 70, 420, d, 0.07, { attack: d * 0.8 }); hiss(d, 0.05, { f0: 400, f1: 2400, q: 1.5, attack: d * 0.8 }); },
+  beamFire: () => { hiss(0.9, 0.24, { type: "lowpass", f0: 2200, f1: 200, attack: 0.005 }); tone("sine", 70, 30, 0.8, 0.22); tone("sawtooth", 140, 50, 0.5, 0.08); },
   overheat: () => { hiss(0.9, 0.12, { type: "highpass", f0: 2500, attack: 0.02 }); tone("square", 180, 90, 0.12, 0.07); },
   reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
   casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),

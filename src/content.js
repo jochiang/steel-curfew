@@ -176,7 +176,8 @@ export const ENEMIES = {
   hive:    { name: "Hive Block",  hp: 560, speed: 0, dmg: 0, r: 10, salvage: 50, color: "#b04aa0", mass: 999, boss: true,
              hive: { every: 3, n: 3, cap: 22, enraged: 0.5, routed: 0.5, pool: [["drone", 3], ["skitter", 3], ["wasp", 2], ["spitter", 1]] } },
   crusher: { name: "Crusher",     hp: 460, speed: 30, dmg: 20, r: 16, salvage: 40, color: "#b23a3a", mass: 20, crush: 260,
-             burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true },
+             burstEvery: 4, burstCount: 10, boltSpeed: 80, boltDmg: 8, boss: true,
+             beam: { every: 7.5, warn: 1.15, len: 240, width: 22, dmg: 30, building: 350, enemy: 40 } },   // furnace beam down a telegraphed lane
 };
 
 // Wave table. pool: [type, weight]

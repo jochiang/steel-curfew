@@ -1,5 +1,5 @@
 import { ARENA, ENEMIES, WEAPONS, FLY_ALT } from "./content.js";
-import { weaponsOffline, mountPoint, darkness, rainAt, altOf } from "./game.js";
+import { weaponsOffline, mountPoint, darkness, rainAt, altOf, beamOrigin } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
@@ -509,6 +509,25 @@ export function createRenderer(canvas) {
       }
       if (Math.random() < dt * 26 * k) flame(pl.x + (Math.random() - 0.5) * R * 1.4, pl.y + (Math.random() - 0.5) * R * 0.8);
     }
+    // the Crusher's lane: a rectangle on the street that fills toward the far end as the furnace charges
+    for (const e of run.enemies) {
+      if (e.beamAim == null) continue;
+      const B = e.d.beam, k = 1 - e.beamWarn / B.warn, o = beamOrigin(e), blink = Math.floor(t * (6 + k * 20)) % 2;
+      g.save(); g.translate(X(o.x), Y(o.y)); g.rotate(e.beamAim);
+      g.globalAlpha = 0.16 + 0.12 * blink; g.fillStyle = C.danger; g.fillRect(0, -B.width / 2, B.len * k, B.width);
+      g.globalAlpha = 1; g.fillStyle = blink ? "#ff8a70" : C.danger;
+      g.fillRect(0, -B.width / 2, B.len, 1); g.fillRect(0, B.width / 2 - 1, B.len, 1); g.fillRect(B.len - 1, -B.width / 2, 1, B.width);
+      g.restore();
+    }
+    for (const f of run.fx) {   // the beam itself: white core, orange, a deep red rim, thinning as it fades
+      if (f.type !== "furnaceBeam") continue;
+      const k = f.t / f.max;
+      g.save(); g.translate(X(f.x), Y(f.y)); g.rotate(f.a);
+      for (const [wf, col] of [[1, "#9a2410"], [0.72, "#ff6a2a"], [0.4, "#ffd36b"], [0.18, "#ffffff"]]) {
+        const w = Math.max(1, f.w * wf * (0.35 + 0.65 * k)); g.fillStyle = col; g.fillRect(0, -w / 2, f.len, w);
+      }
+      g.restore();
+    }
     // spawn telegraphs: a reticle that closes in
     for (const m of run.marks) {
       const k = 1 - m.t / m.max, big = m.type === "crusher" || m.type === "hive", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
@@ -671,6 +690,7 @@ export function createRenderer(canvas) {
     g.globalCompositeOperation = "lighter";
     const bloom = 1 + 0.6 * d;
     for (const pl of run.pools || []) { const r = Math.round(pl.r * 1.3); g.drawImage(glowOf(r, "#5a2a0a"), X(pl.x) - r, Y(pl.y) - r); }
+    for (const f of run.fx) if (f.type === "furnaceBeam") { const gl = glowOf(16, f.t / f.max > 0.5 ? "#7a3010" : "#3a1606"); for (let s = 0; s <= f.len; s += 14) g.drawImage(gl, X(f.x + Math.cos(f.a) * s) - 16, Y(f.y + Math.sin(f.a) * s) - 16); }
     let halos = 0;   // hot particles glow (capped: a big fire can throw a few hundred)
     for (const q of run.parts) {
       if (!(q.spark || q.fire) || q.t / q.max < 0.3 || ++halos > 220) continue;
@@ -994,6 +1014,8 @@ export function createRenderer(canvas) {
       put(Math.min(44, 7 + 8 * Math.sqrt(b.w)), b.energy > b.fire && b.energy > b.spark ? "#5a3a9a" : b.fire >= b.spark ? "#9a4a16" : "#8a7430", x, y);
     }
     for (const pl of run.pools || []) put(pl.r * 2.6 * (0.88 + Math.random() * 0.12) * Math.min(1, pl.t / pl.max * 3), "#b0561a", pl.x, pl.y);   // napalm lights the street
+    for (const f of run.fx) if (f.type === "furnaceBeam") for (let s = 0; s <= f.len; s += 12) put(36 * (0.4 + 0.6 * f.t / f.max), "#c0601c", f.x + Math.cos(f.a) * s, f.y + Math.sin(f.a) * s);
+    for (const e of run.enemies) if (e.beamAim != null) { const o = beamOrigin(e), k = 1 - e.beamWarn / e.d.beam.warn; put(14 + 30 * k, "#a0400c", o.x, o.y); }   // the furnace brightens as it charges
     // shells, missiles, fire
     for (const sh of run.shells) { const k = sh.t / sh.dur; put(8, "#7a3a10", sh.x0 + (sh.tx - sh.x0) * k, sh.y0 + (sh.ty - sh.y0) * k - Math.sin(Math.PI * k) * 46); put(sh.r + 4, "#3a0c08", sh.tx, sh.ty); }
     for (const m of run.missiles) put(8, "#7a4a18", m.x, m.y - m.z);

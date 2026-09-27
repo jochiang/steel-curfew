@@ -318,6 +318,16 @@ export function update(run, dt, move) {
       if (e.burnAcc >= 0.3) { e.burnAcc = 0; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); if (e.dead) continue; }
       if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1, fire: true });
     }
+    if (d.beam) {   // Crusher: plants itself, locks a lane (telegraphed), then a furnace beam down it
+      const B = d.beam;
+      if (e.beamAim != null) {
+        mx = 0; my = 0;
+        if ((e.beamWarn -= dt) <= 0) { furnaceBeam(run, e); e.beamAim = null; }
+      } else if ((e.beamT = (e.beamT ?? B.every * 0.5) - dt) <= 0 && dist < B.len * 0.85 && !(e.stunT > 0)) {
+        e.beamT = B.every; e.beamAim = Math.atan2(dy, dx); e.beamWarn = B.warn;
+        run.events.push({ type: "beamCharge", dur: B.warn });
+      }
+    }
     if (e.stunT > 0) e.stunT -= dt;   // arc-stunned: frozen in place for a beat
     const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul * (e.stunT > 0 ? 0 : 1);
     e.crushing = false;
@@ -845,6 +855,28 @@ function processCollapses(run) {
 
 // how far away an enemy is for targeting: a hive counts from its building's walls, not its centre
 const reachOf = (e, p) => Math.max(0, Math.hypot(e.x - p.x, e.y - p.y) - (e.d.hive ? e.d.r : 0));
+/** The Crusher's furnace beam down its locked lane: the mech, its own swarm, and every building across it */
+export const beamOrigin = (e) => ({ x: e.x + Math.cos(e.beamAim) * e.d.r * 0.6, y: e.y + Math.sin(e.beamAim) * e.d.r * 0.6 });
+function furnaceBeam(run, e) {
+  const B = e.d.beam, a = e.beamAim, ca = Math.cos(a), sa = Math.sin(a), { x: ox, y: oy } = beamOrigin(e), p = run.player;
+  const inLane = (x, y, r) => { const dx = x - ox, dy = y - oy, along = dx * ca + dy * sa; return along > -r && along < B.len + r && Math.abs(dx * sa - dy * ca) < B.width / 2 + r; };
+  if (inLane(p.x, p.y, run.chassis.radius)) hurtPlayer(run, B.dmg * waveDmgMul(run.wave) * e.dmgMul, "crusher beam");
+  for (const q of run.enemies) if (q !== e && !q.dead && !q.d.boss && !(q.d.flying && altOf(q) > 12) && inLane(q.x, q.y, q.d.r)) hitEnemy(run, q, B.enemy * waveHpMul(run.wave), ca * 80, sa * 80);
+  const cut = new Set();
+  for (let s = 0; s <= B.len; s += 6) for (const off of [-B.width / 2 + 2, 0, B.width / 2 - 2]) {
+    const tx = Math.floor((ox + ca * s - sa * off) / TILE), ty = Math.floor((oy + sa * s + ca * off) / TILE);
+    if (tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS) { const id = run.city.bid[ty * TCOLS + tx]; if (id >= 0) cut.add(id); }
+  }
+  for (const id of cut) damageBuilding(run.city, run.city.buildings[id], B.building);
+  for (let i = 0; i < 30; i++) {   // embers shed along the lane
+    const s = run.rand() * B.len, off = (run.rand() - 0.5) * B.width, v = 20 + run.rand() * 40, pa = a + Math.PI / 2 * (run.rand() < 0.5 ? 1 : -1);
+    run.parts.push({ x: ox + ca * s - sa * off, y: oy + sa * s + ca * off, vx: Math.cos(pa) * v, vy: Math.sin(pa) * v - 10, t: 0.5, max: 0.5, color: run.rand() < 0.5 ? "#ffd36b" : "#ff6a3c", size: 1 + (run.rand() < 0.3 ? 1 : 0), fire: true });
+  }
+  run.fx.push({ type: "furnaceBeam", x: ox, y: oy, a, len: B.len, w: B.width, t: 0.5, max: 0.5 });
+  run.shake = Math.max(run.shake, 7); run.flashT = Math.max(run.flashT || 0, 0.15);
+  run.events.push({ type: "beamFire" });
+}
+
 /** The ground enemy in range with the most company within r (napalm's target) */
 function densest(run, range, r) {
   const p = run.player, cands = run.enemies.filter((e) => !e.dead && !e.d.flying && !e.d.hive && reachOf(e, p) < range).slice(0, 40);
