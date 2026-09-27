@@ -222,6 +222,7 @@ export function damageAt(city, ti, dmg) {
 }
 export function damageBuilding(city, b, dmg, quiet = false) {
   if (!b || b.dead) return null;
+  city.onDamage?.(b, Math.min(dmg, Math.max(0, b.hp)));   // the run's property-damage ledger (game.js)
   b.hp -= dmg; if (!quiet) b.hit = 0.12;
   if (b.hp > 0) return null;
   b.dead = true; b.hp = 0;

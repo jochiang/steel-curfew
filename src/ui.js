@@ -8,6 +8,7 @@ import {
 import { isMuted, setMuted, ui as sfx } from "./audio.js";
 import { musicEnabled, setMusicEnabled } from "./music.js";
 import { mechFrames } from "./art.js";
+import { afterAction, billSoFar } from "./report.js";
 import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary, saveSettings } from "./meta.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs, isIOS, standalone, supported as fsSupported } from "./fullscreen.js";
 
@@ -197,6 +198,7 @@ export function renderHangar(run, onDeploy) {
     <div class="panel hangar-panel">
       <header>
         <div><h2>Hangar</h2><p class="sub">${waveName(run.wave)} survived · next: ${run.endless ? waveName(run.wave + 1) : `wave ${next} of ${WAVES.length}`}</p>
+          ${billSoFar(run) ? `<p class="sub bill">${esc(billSoFar(run))}</p>` : ""}
           ${(run.unlocks || []).filter((u) => !u.seen).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b>${u.kind === "weapons" ? " · now in the market" : ""}</p>`).join("")}</div>
         <div class="purse">◆ <b>${run.salvage}</b></div>
       </header>
@@ -324,6 +326,22 @@ export function renderPaused(run, onResume, onQuit) {
   show("paused");
 }
 
+/** The After-Action Report (see report.js): a Hitman-style rating on how much of the city you wrecked */
+function reportHtml(run) {
+  const r = afterAction(run), c = r.collateral, k = r.combat;
+  const bars = k.byWeapon.slice(0, 5).map((w) => `<li><span>${esc(w.name)}</span><i style="width:${Math.max(2, w.pct)}%"></i><b>${w.dmg}</b></li>`).join("");
+  return `<section class="aar">
+    <p class="aar-kicker">After-action report · ${esc(r.status)}</p>
+    <p class="aar-title">${esc(r.title)}</p>
+    <p class="aar-quote">“${esc(r.quote)}”<small>the Mayor</small></p>
+    <div class="aar-bill"><span>Property damage</span><b>${r.bill.total}</b><small>${r.bill.you} yours (${r.bill.yourPct}%) · ${r.bill.invaders} the invaders'</small></div>
+    <p class="aar-coll"><b>${c.leveled}</b> buildings leveled${c.leveledByInvaders ? ` <small>(+${c.leveledByInvaders} by the invaders)</small>` : ""} · <b>${c.fires}</b> fires · <b>${c.cars}</b> cars · <b>${c.lamps}</b> lamps${c.trees ? ` · <b>${c.trees}</b> trees` : ""}</p>
+    ${r.medals.length ? `<ul class="aar-medals">${r.medals.map((m) => `<li><b>${esc(m.name)}</b><small>${esc(m.text)}</small></li>`).join("")}</ul>` : ""}
+    ${bars ? `<ul class="aar-bars">${bars}</ul>` : ""}
+    <p class="aar-line">${k.kills} kills${k.elites ? ` · ${k.elites} elites` : ""}${k.bosses ? ` · ${k.bosses} boss${k.bosses > 1 ? "es" : ""}` : ""}${k.worst ? ` · hurt most by ${esc(k.worst.name)} (${k.worst.dmg})` : ""} · salvage ${k.earned} earned, ${k.spent} spent</p>
+  </section>`;
+}
+
 export function renderEnd(run, onAgain, onTitle, onStay) {
   const el = $("#end"), won = run.phase === "won", car = getMeta().career;
   const how = won ? `All ${WAVES.length} waves survived${run.m.bossKillT != null ? ", the boss is down" : ""}`
@@ -333,7 +351,8 @@ export function renderEnd(run, onAgain, onTitle, onStay) {
       <h2>${won ? "City held" : "Mech destroyed"}</h2>
       <p class="sub">${how} · ${run.kills} wrecks · pilot level ${run.level} · ${Math.floor(run.time)}s</p>
       ${(run.unlocks || []).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b> <small>(${u.kind === "chassis" ? "frame" : "weapon"})</small></p>`).join("")}
-      <p class="sub career">Best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` · best +${car.bestCurfew} past curfew` : ""} · ${car.runs} runs · ${car.kills} wrecks total</p>
+      ${reportHtml(run)}
+      <p class="sub career">Best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` · best +${car.bestCurfew} past curfew` : ""} · ${car.runs} run${car.runs === 1 ? "" : "s"} · ${car.kills} wrecks total</p>
       ${won ? `<button class="primary stay" data-stay>Stay out past curfew<small>endless: harder every wave, a boss every third</small></button>
       <button class="ghost" data-title>Extract</button>` : `
       <button class="primary" data-again>Redeploy</button>

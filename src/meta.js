@@ -2,7 +2,8 @@
 // storage can be missing, full or blocked (private windows), and the game must still run.
 
 import { WEAPONS, CHASSIS } from "./content.js";
-import { recompute } from "./game.js";
+import { recompute, attachLedger } from "./game.js";
+import { afterAction } from "./report.js";
 
 const KEY = "mech.meta.v1", RUN_KEY = "mech.run.v1";
 
@@ -82,7 +83,7 @@ export function recordProgress(run, reached = run.wave + 1) {
 export function recordEnd(run) {
   const got = recordProgress(run);
   meta.career.bestCurfew = Math.max(meta.career.bestCurfew, run.curfew || 0);
-  const entry = { chassis: run.chassisKey, wave: run.wave + 1, won: run.phase === "won" || !!run.endless, kills: run.kills, level: run.level, tod: run.tod, curfew: run.curfew || 0 };
+  const entry = { chassis: run.chassisKey, wave: run.wave + 1, won: run.phase === "won" || !!run.endless, kills: run.kills, level: run.level, tod: run.tod, curfew: run.curfew || 0, rating: afterAction(run).title };
   const prev = run.recordedAt && meta.history.find((h) => h.at === run.recordedAt);
   if (run.recordedAt) { if (prev) Object.assign(prev, entry); }   // an endless run ending: the win was already counted
   else {
@@ -133,6 +134,7 @@ export function loadRun(makeRun) {
     run.rand.set(randState);
     run.field.version = -1; run.heavyField.version = -1;   // force the flow fields to rebuild
     recompute(run);
+    attachLedger(run);   // the city's damage hook doesn't survive a save
     return run;
   } catch { clearSavedRun(); return null; }
 }

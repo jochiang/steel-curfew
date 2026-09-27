@@ -73,12 +73,14 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     allowed,                                             // weapon keys the shop may offer (null = all)
     tally: { kills: 0, elites: 0, bosses: 0, buildings: 0 },   // for career progress
     // balance metrics (cumulative; tools/balance.mjs reads them per wave)
-    m: { dealt: 0, hpSpawned: 0, hits: 0, glanced: 0, takenRaw: 0, taken: 0, earned: 0, spent: 0, bossSpawnT: null, bossKillT: null, bossType: null, bossHp: 0, bySrc: {} },
+    m: { dealt: 0, hpSpawned: 0, hits: 0, glanced: 0, takenRaw: 0, taken: 0, earned: 0, spent: 0, bossSpawnT: null, bossKillT: null, bossType: null, bossHp: 0, bySrc: {},
+      dmgBy: {}, prop: { you: 0, invaders: 0 }, leveled: { you: 0, invaders: 0 }, props: { lamp: 0, car: 0, tree: 0 }, fires: 0, cityHp: 0 },   // the After-Action Report's ledger
     stats: null, load: 0,
   };
   addWeapon(run, start, 0);
   recompute(run);
   startWave(run);
+  attachLedger(run);
   return run;
 }
 
@@ -99,6 +101,22 @@ export function recompute(run) {
   run.mounts = assignMounts(run);
   run.stats = s;
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
+}
+
+// ---------------------------------------------------------------- the After-Action Report's ledger
+// Who is responsible for what happens right now: "you" by default, "invaders" while enemy code runs.
+// `credit` names the weapon (or other cause) behind damage to enemies.
+let blame = "you", credit = "other";
+/** Hook the city's damage into the run's ledger (newRun, and again after a save is loaded) */
+export function attachLedger(run) {
+  const m = run.m;
+  m.dmgBy ||= {}; m.prop ||= { you: 0, invaders: 0 }; m.leveled ||= { you: 0, invaders: 0 }; m.props ||= { lamp: 0, car: 0, tree: 0 }; m.fires ||= 0;
+  if (!m.cityHp) m.cityHp = run.city.buildings.reduce((t, b) => t + b.maxHp, 0);
+  run.city.onDamage = (b, applied) => {
+    if (b.hiveBank) return;   // a hive's banked building: its losses are the hive's health, not property
+    const who = b.burnBy && blame === "fire" ? b.burnBy : blame === "fire" ? "you" : blame;
+    m.prop[who] += applied; b.lastBlame = who;
+  };
 }
 
 export function startWave(run) {
@@ -269,8 +287,10 @@ export function update(run, dt, move) {
 
   // --- enemies
   const kbDecay = Math.exp(-8 * dt);
+  blame = "invaders";
   for (const e of run.enemies) {
-    if (e.d.hive) { tickHive(run, e, dt); continue; }
+    credit = "friendly fire";
+    if (e.d.hive) { credit = "collateral"; tickHive(run, e, dt); continue; }
     const d = e.d, dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
     let mx = dx / dist, my = dy / dist;
     const lobber = d.lobEvery || d.barrageEvery;
@@ -315,7 +335,7 @@ export function update(run, dt, move) {
     }
     if (e.burn > 0) {   // on fire: damage ticks, and a few flames
       e.burn -= dt; e.burnAcc = (e.burnAcc || 0) + dt;
-      if (e.burnAcc >= 0.3) { e.burnAcc = 0; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); if (e.dead) continue; }
+      if (e.burnAcc >= 0.3) { e.burnAcc = 0; credit = e.burnSrc || "fire"; hitEnemy(run, e, e.burnDps * 0.3, 0, 0, true); credit = "friendly fire"; if (e.dead) continue; }
       if (rand() < dt * 12) run.parts.push({ x: e.x + (rand() - 0.5) * e.d.r, y: e.y - e.d.r * 0.5, vx: 0, vy: -20, t: 0.3, max: 0.3, color: rand() < 0.5 ? "#ffb347" : "#e8602c", size: 1, fire: true });
     }
     if (d.beam) {   // Crusher: plants itself, locks a lane (telegraphed), then a furnace beam down it
@@ -384,6 +404,7 @@ export function update(run, dt, move) {
   }
   for (const e of run.enemies) {
     if (e.dead || e.d.hive) continue;
+    blame = "invaders";
     if (!e.d.flying) collide(city, e, e.d.r, e.d.crush ? (ti) => { e.crushing = true; damageAt(city, ti, e.d.crush * dt * 0.5); } : null);
     if (e.d.crush && e.crushing) breakProps(run, e.x, e.y, e.d.r + 2);
     e.x = clamp(e.x, e.d.r, ARENA.w - e.d.r); e.y = clamp(e.y, e.d.r, ARENA.h - e.d.r);
@@ -393,13 +414,15 @@ export function update(run, dt, move) {
       if (stomp && !(e.d.flying && altOf(e) > 12) && !(e.ramT > run.time)) {   // every frame hurts what it walks into; the Bulwark shoulders through
         e.ramT = run.time + RAM.every;
         const d = Math.hypot(dx, dy) || 1, knock = RAM.knock * (s.ram ? 1 : 0.5);
-        hitEnemy(run, e, RAM.enemy * stomp * (p.moving ? 1 : 0.5) * (1 + 0.3 * run.wave), (-dx / d) * knock, (-dy / d) * knock);
+        credit = "ramming"; hitEnemy(run, e, RAM.enemy * stomp * (p.moving ? 1 : 0.5) * (1 + 0.3 * run.wave), (-dx / d) * knock, (-dy / d) * knock);
       }
       if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul, "contact " + e.type);
     }
   }
-  // buildings on fire burn down
+  // buildings on fire burn down (on whoever lit them)
+  blame = "fire";
   for (const b of city.buildings) if (b.burn > 0 && !b.dead) { b.burn -= dt; damageBuilding(city, b, 12 * dt, true); }
+  blame = "you";
 
   // --- aim: face the nearest enemy, else the travel direction
   const nearest = nearestEnemy(run, 999);
@@ -411,6 +434,7 @@ export function update(run, dt, move) {
   // --- ballistic + melee
   const offline = weaponsOffline(run);
   for (const w of run.weapons) {
+    credit = w.key;
     const def = WEAPONS[w.key];
     w.cd -= dt;
     w.kick = Math.max(0, (w.kick || 0) - dt * 16);      // recoil springs back
@@ -447,7 +471,7 @@ export function update(run, dt, move) {
         const t = nearestEnemy(run, def.range * (1 + s.rangeMul));
         if (!t) continue;
         const m = mountPoint(run, run.weapons.indexOf(w)), a0 = Math.atan2(t.y - p.y, t.x - p.x) + (rand() - 0.5) * 1.6;
-        run.missiles.push({ x: m.x, y: p.y, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: p.y - m.y, z0: p.y - m.y,
+        run.missiles.push({ src: w.key, x: m.x, y: p.y, vx: Math.cos(a0) * 60, vy: Math.sin(a0) * 60, target: t, tx: t.x, ty: t.y, age: 0, z: p.y - m.y, z0: p.y - m.y,
           dmg: weaponDmg(run, w), aoe: def.missile.aoe, speed: def.missile.speed });
         run.events.push({ type: "missile" });
         run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
@@ -467,7 +491,7 @@ export function update(run, dt, move) {
       for (let i = 0; i < def.pellets; i++) {
         const a = base + (rand() - 0.5) * def.spread * (flak ? 1 : 2);
         const sp = def.speed * (flak ? 0.85 + rand() * 0.3 : 1);
-        run.shots.push({ x: tipX, y: tipY, h, air, slope, alt, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak });
+        run.shots.push({ x: tipX, y: tipY, h, air, slope, alt, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, life: (def.range * (1 + s.rangeMul) * 1.15) / sp, fam: "ballistic", big: flak, src: w.key });
       }
       run.fx.push({ type: "muzzle", key: w.key, x: m.x + Math.cos(base) * ml, y: m.y + Math.sin(base) * ml, a: base, t: flak ? 0.12 : 0.07, max: flak ? 0.12 : 0.07 });
       run.fx.push({ type: "casing", x: m.x, y: m.y, a: base, n: flak ? 2 : 1, t: 0.01, max: 0.01 });   // the renderer throws the brass
@@ -492,7 +516,7 @@ export function update(run, dt, move) {
           const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
           if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
           hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock, true);
-          e.burn = Math.max(e.burn, def.burn.dur); e.burnDps = Math.max(e.burnDps || 0, burnDps);
+          e.burn = Math.max(e.burn, def.burn.dur); e.burnDps = Math.max(e.burnDps || 0, burnDps); e.burnSrc = w.key;
         });
         igniteInArc(run, a, def.arc, reach + 4, def.buildingBurn);
         const m = mountPoint(run, run.weapons.indexOf(w));
@@ -552,6 +576,7 @@ export function update(run, dt, move) {
       run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
       run.shake = Math.max(run.shake, 5);
       if (s.ventBurst) {
+        credit = "vent burst";
         near(p.x, p.y, 60, (e) => {
           const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
           if (d < 45 + e.d.r) hitEnemy(run, e, s.ventBurst * waveHpMul(run.wave) * 0.8, (dx / d) * 80, (dy / d) * 80);
@@ -588,7 +613,7 @@ export function update(run, dt, move) {
     });
     if (hit) {
       const sp = Math.hypot(sh.vx, sh.vy);
-      hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
+      credit = sh.src || "autocannon"; hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
       sh.life = 0;
       run.fx.push({ type: "impact", x: sh.x, y: sh.y - (sh.h ?? 4), t: 0.07, max: 0.07 });
       run.events.push({ type: "tink" });
@@ -613,7 +638,7 @@ export function update(run, dt, move) {
   for (const l of run.lobs) {
     if ((l.t += dt) < l.dur) continue;
     l.done = true;
-    blastAt(run, l.tx, l.ty, l.N.radius * 0.6, { enemies: l.dmg, src: "napalm" });
+    credit = "napalm"; blastAt(run, l.tx, l.ty, l.N.radius * 0.6, { enemies: l.dmg, src: "napalm" });
     run.pools.push({ x: l.tx, y: l.ty, r: l.N.radius, t: l.N.dur, max: l.N.dur, dps: l.dmg * l.N.burn, bb: l.N.buildingBurn, tick: 0, seed: rand() });
     run.events.push({ type: "napalm" });
     run.shake = Math.max(run.shake, 1.5);
@@ -623,26 +648,28 @@ export function update(run, dt, move) {
     pl.t -= dt;
     near(pl.x, pl.y, pl.r + 16, (e) => {   // whatever stands (or hovers low) in it keeps burning
       if (e.dead || (e.d.flying && altOf(e) > 12) || Math.hypot(e.x - pl.x, (e.y - pl.y) * 1.4) > pl.r + e.d.r * 0.5) return;
-      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps);
+      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps); e.burnSrc = "napalm";
     });
     if ((pl.tick -= dt) <= 0) {   // and it catches the buildings it touches
       pl.tick = 0.5;
       for (const b of run.city.buildings) {
         if (b.dead) continue;
         const nx = Math.max(b.x * TILE, Math.min(pl.x, (b.x + b.w) * TILE)), ny = Math.max(b.y * TILE, Math.min(pl.y, (b.y + b.h) * TILE));
-        if (Math.hypot(nx - pl.x, ny - pl.y) < pl.r) b.burn = Math.max(b.burn || 0, pl.bb);
+        if (Math.hypot(nx - pl.x, ny - pl.y) < pl.r) { if (!(b.burn > 0)) { run.m.fires++; b.burnBy = "you"; } b.burn = Math.max(b.burn || 0, pl.bb); }
       }
     }
   }
   run.pools = run.pools.filter((pl) => pl.t > 0);
 
   // --- artillery shells: fly over everything, land where they were aimed
+  blame = "invaders"; credit = "friendly fire";
   for (const sh of run.shells) {
     if ((sh.t += dt) < sh.dur) continue;
     sh.done = true;
     blastAt(run, sh.tx, sh.ty, sh.r, { player: sh.dmg * waveDmgMul(run.wave) * sh.mul, building: sh.building, src: sh.src });
   }
   run.shells = run.shells.filter((sh) => !sh.done);
+  blame = "you";
 
   // --- missiles: climb, home on their target, burst
   for (const m of run.missiles) {
@@ -655,6 +682,7 @@ export function update(run, dt, move) {
     if (rand() < 0.6) run.parts.push({ x: m.x, y: m.y - m.z, vx: (rand() - 0.5) * 8, vy: -6, t: 0.45, max: 0.45, color: "#9a9590", size: 1, steam: true });
     if (d < 6 || m.age > 3) {
       m.done = true;
+      credit = m.src || "missiles";
       near(m.tx, m.ty, m.aoe + 16, (e) => { if (Math.hypot(e.x - m.tx, e.y - m.ty) < m.aoe + e.d.r) hitEnemy(run, e, m.dmg, (e.x - m.tx) * 3, (e.y - m.ty) * 3); });
       buildingsAround(run, m.tx, m.ty, m.aoe, m.dmg * BUILDING_DMG.ballistic * 0.6);
       run.fx.push({ type: "boom", x: m.tx, y: m.ty, r: 6, t: 0.35, max: 0.35 });
@@ -783,8 +811,10 @@ function blastAt(run, x, y, r, { player = 0, building = 0, enemies = 0, src = "b
 function explode(run, e) {
   if (e.blown) return;
   e.blown = true; e.dead = true;
-  const b = e.d.blast;
+  const b = e.d.blast, was = [blame, credit];
+  blame = "invaders"; credit = "friendly fire";
   blastAt(run, e.x, e.y, b.radius, { player: b.dmg * waveDmgMul(run.wave) * e.dmgMul, building: b.building, enemies: b.enemyDmg * waveHpMul(run.wave), src: "sapper blast" });
+  [blame, credit] = was;
 }
 
 /** Damage each building with a tile within r of a point (once per building) */
@@ -811,6 +841,7 @@ function igniteInArc(run, a, arc, reach, secs) {
     const nx = Math.max(tx * TILE, Math.min(p.x, (tx + 1) * TILE)), ny = Math.max(ty * TILE, Math.min(p.y, (ty + 1) * TILE));
     const d = Math.hypot(nx - p.x, ny - p.y);
     if (d > reach || (d > 2 && angDiff(Math.atan2(ny - p.y, nx - p.x), a) > arc / 2 + 0.3)) continue;
+    if (!(city.buildings[id].burn > 0)) { run.m.fires++; city.buildings[id].burnBy = "you"; }
     city.buildings[id].burn = Math.max(city.buildings[id].burn || 0, secs);
   }
 }
@@ -820,6 +851,7 @@ function breakProps(run, x, y, r) {
   for (const pr of run.city.props) {
     if (pr.broken || Math.abs(pr.x - x) > r + 7 || Math.abs(pr.y - y) > r + 7) continue;
     pr.broken = true;
+    if (blame === "you" && run.m.props[pr.type] != null) run.m.props[pr.type]++;
     run.events.push({ type: "crunch" });
     for (let i = 0; i < 5; i++) {
       const a = run.rand() * Math.PI * 2, v = 20 + run.rand() * 40;
@@ -833,7 +865,7 @@ function processCollapses(run) {
   const city = run.city;
   while (city.collapsed.length) {
     const b = city.buildings[city.collapsed.shift()];
-    run.tally.buildings++;
+    run.tally.buildings++; run.m.leveled[b.lastBlame || "you"]++;
     const cx = (b.x + b.w / 2) * TILE, cy = (b.y + b.h / 2) * TILE;
     run.fx.push({ type: "collapse", bid: b.id, x: cx, y: cy, t: 0.7, max: 0.7 });
     run.shake = Math.max(run.shake, 3 + b.height * 2);
@@ -959,6 +991,7 @@ function arcChain(run, start, def) {
 }
 
 function discharge(run, w, aim, pl) {
+  credit = w.key;
   const def = WEAPONS[w.key], p = run.player, s = run.stats, dmg = weaponDmg(run, w);
   const range = def.range * (1 + s.rangeMul);
   if (def.kind === "arc") {
@@ -1024,7 +1057,8 @@ function beamHits(run, a, range, width) {
 
 function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.dead) return;
-  run.m.dealt += Math.min(dmg, Math.max(0, e.hp));
+  const applied = Math.min(dmg, Math.max(0, e.hp));
+  run.m.dealt += applied; run.m.dmgBy[credit] = (run.m.dmgBy[credit] || 0) + applied;
   e.hp -= dmg; e.flash = quiet ? Math.max(e.flash, 0.03) : 0.08;
   const m = e.d.mass || 1;
   e.kx += kx / m; e.ky += ky / m;

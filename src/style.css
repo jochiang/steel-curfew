@@ -301,3 +301,27 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .boss span { font-size: 13px; color: var(--danger); letter-spacing: 0.14em; text-transform: uppercase; }
 .boss .bar { height: 8px; margin-top: 3px; }
 .boss .bar i { background: var(--danger); }
+
+/* ------------------------------------------------------------------ after-action report */
+.aar { text-align: left; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 0; display: grid; gap: 8px; }
+.aar-kicker { margin: 0; font-family: var(--px); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.aar-title { margin: 0; font-family: var(--px); font-weight: 700; font-size: 26px; line-height: 1.05; color: var(--accent); }
+.aar-quote { margin: 0; font-style: italic; color: var(--text); font-size: 14px; }
+.aar-quote small { display: block; font-style: normal; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.aar-quote small::before { content: "— "; }
+.aar-bill { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px 8px; background: var(--panel-2); padding: 8px 10px; }
+.aar-bill span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; }
+.aar-bill b { font-family: var(--px); font-size: 20px; color: var(--ballistic); }
+.aar-bill small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.aar-coll, .aar-line { margin: 0; font-size: 12px; color: var(--muted); }
+.aar-coll b { color: var(--text); }
+.aar-medals { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.aar-medals li { border-left: 3px solid var(--ballistic); padding: 3px 8px; background: rgba(255, 211, 107, 0.06); }
+.aar-medals b { font-family: var(--px); font-size: 13px; color: var(--ballistic); display: block; }
+.aar-medals small { font-size: 12px; color: var(--muted); }
+.aar-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.aar-bars li { display: grid; grid-template-columns: 7.5em 1fr 3.2em; align-items: center; gap: 6px; font-size: 12px; }
+.aar-bars span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aar-bars i { display: block; height: 6px; background: var(--accent); }
+.aar-bars b { text-align: right; font-family: var(--px); font-weight: 500; }
+.sub.bill { margin-top: 2px; font-size: 12px; color: var(--ballistic); }
