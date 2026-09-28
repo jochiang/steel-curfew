@@ -185,8 +185,9 @@ export function play(events) {
 }
 export function ui(type) { if (ac && !muted && ac.state === "running") SFX[type]?.({}); }
 
-/** Test hook: render one effect offline and measure it (peak, RMS, audible length). */
-export async function probe(type, e = {}, filter = null) {
+/** Test hook: render one effect offline and measure it (peak, RMS, audible length); `raw` also returns the samples
+ *  (the trailer tool mixes the game's own effects onto its soundtrack). */
+export async function probe(type, e = {}, filter = null, raw = false) {
   const saved = [ac, master, noise, Math.random];
   const off = new OfflineAudioContext(1, 44100 * 2, 44100);
   let seed = 12345;
@@ -202,6 +203,6 @@ export async function probe(type, e = {}, filter = null) {
   const d = (await off.startRendering()).getChannelData(0);
   let peak = 0, sum = 0, end = 0;
   for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; sum += v * v; if (v > 0.01) end = i; }
-  return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / (end + 1)).toFixed(3), ms: Math.round((end / 44100) * 1000), energy: sum };
+  return { peak: +peak.toFixed(3), rms: +Math.sqrt(sum / (end + 1)).toFixed(3), ms: Math.round((end / 44100) * 1000), energy: sum, ...(raw ? { data: d.slice(0, end + 1) } : {}) };
 }
 export const SFX_NAMES = Object.keys(SFX);
