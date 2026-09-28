@@ -109,6 +109,15 @@ const SFX = {
   napalm: () => gate("napalm", 90) && (hiss(0.5, 0.16, { type: "lowpass", f0: 1400, f1: 300, attack: 0.01 }), tone("sine", 80, 40, 0.3, 0.14), hiss(0.9, 0.05, { f0: 3000, q: 0.7, when: 0.1 })),
   beamCharge: (e) => { const d = e.dur ?? 1.1; tone("sawtooth", 70, 420, d, 0.07, { attack: d * 0.8 }); hiss(d, 0.05, { f0: 400, f1: 2400, q: 1.5, attack: d * 0.8 }); },
   beamFire: () => { hiss(0.9, 0.24, { type: "lowpass", f0: 2200, f1: 200, attack: 0.005 }); tone("sine", 70, 30, 0.8, 0.22); tone("sawtooth", 140, 50, 0.5, 0.08); },
+  dropship: () => { hiss(3.0, 0.1, { type: "lowpass", f0: 500, f1: 180, attack: 0.9, hold: 0.6 }); tone("sawtooth", 58, 44, 2.8, 0.07, { attack: 0.8 }); tone("sawtooth", 87, 66, 2.8, 0.04, { attack: 0.8 }); },
+  dropRelease: () => { tone("square", 320, 180, 0.06, 0.08); tone("square", 240, 120, 0.08, 0.07, { when: 0.05 }); hiss(0.05, 0.08, { f0: 3000 }); },
+  land: (e) => {
+    const k = e.kind;
+    if (k === "bulwark") { hiss(1.2, 0.3, { type: "lowpass", f0: 1600, f1: 120, attack: 0.004 }); tone("sine", 60, 26, 1.0, 0.3); tone("square", 110, 40, 0.3, 0.1); }
+    else if (k === "tempest") { tone("sine", 900, 300, 0.4, 0.06); hiss(0.25, 0.08, { f0: 3500, q: 1 }); tone("sine", 70, 50, 0.3, 0.12); }
+    else if (k === "kestrel") { hiss(0.45, 0.1, { f0: 1800, f1: 600, q: 0.7 }); tone("sine", 90, 50, 0.2, 0.12); }
+    else { hiss(0.5, 0.14, { type: "lowpass", f0: 1200, f1: 200 }); tone("sine", 70, 34, 0.5, 0.2); }
+  },
   overheat: () => { hiss(0.9, 0.12, { type: "highpass", f0: 2500, attack: 0.02 }); tone("square", 180, 90, 0.12, 0.07); },
   reloaded: () => gate("reloaded", 150) && tone("square", 420, 520, 0.03, 0.03),
   casing: () => gate("casing", 90) && tone("triangle", 2600 + Math.random() * 900, 2400, 0.012, 0.012),

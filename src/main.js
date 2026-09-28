@@ -43,6 +43,7 @@ function deploy() {
   if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
   run = newRun({ seed: opts.seed ?? (Date.now() >>> 0), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
   if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=6 is past curfew +1
+  else if (!BOT && !params.has("nointro") && (!params.has("go") || params.has("intro"))) { run.intro = { t: 0 }; run.events.push({ type: "dropship" }); }   // round 1: the drop (?go test runs skip it unless &intro)
   paused = false; acc = 0; shownPhase = "";
   input.reset();
   syncScreens();
@@ -148,7 +149,8 @@ setInterval(() => {
   if (!run || run.phase !== "combat" || paused || document.visibilityState !== "visible") { simSeen.t = -1; return; }
   const now = performance.now();
   if (now - lastFrameAt > 2500) reportError(new Error(`no frames for ${((now - lastFrameAt) / 1000).toFixed(0)}s`));
-  if (run.waveTime !== simSeen.t) simSeen = { t: run.waveTime, at: now };
+  const clock = run.waveTime + (run.intro ? run.intro.t : 0);   // the round-1 drop holds the wave clock but runs its own
+  if (clock !== simSeen.t) simSeen = { t: clock, at: now };
   else if (now - simSeen.at > 3000) reportError(new Error(`simulation stuck at ${run.waveTime.toFixed(1)}s (freeze ${run.freeze}, player ${Math.round(run.player.x)},${Math.round(run.player.y)})`));
 }, 1000);
 canvas.addEventListener("contextlost", () => reportError(new Error("the screen lost its graphics context")));

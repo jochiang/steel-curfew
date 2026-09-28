@@ -1,7 +1,7 @@
 import { ARENA, ENEMIES, WEAPONS, FLY_ALT } from "./content.js";
-import { weaponsOffline, mountPoint, darkness, rainAt, altOf, beamOrigin } from "./game.js";
+import { weaponsOffline, mountPoint, darkness, rainAt, altOf, beamOrigin, dropState, dropshipAt, DROP } from "./game.js";
 import { STICK_RADIUS } from "./input.js";
-import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
+import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE, dropshipFrame } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
 import { createCompositor } from "./gl.js";
@@ -166,6 +166,18 @@ export function createRenderer(canvas) {
     for (const f of run.fx) {
       if (f.stamped) continue;
       if (f.type === "collapse") { f.stamped = true; paintRubble(fg, city.buildings[f.bid]); burning.set(f.bid, run.time + 9); continue; }
+      if (f.type === "slam") {   // the Bulwark's landing leaves a crater: a dark bowl and a cracked rim
+        f.stamped = true;
+        const x = Math.round(f.x), y = Math.round(f.y);
+        for (const [rr, col, al] of [[15, "#0c0a08", 0.35], [10, "#16120e", 0.45], [5, "#0a0806", 0.55]]) {
+          fg.fillStyle = col; fg.globalAlpha = al; const ry = Math.round(rr * 0.55);
+          for (let dy = -ry; dy <= ry; dy++) { const w = Math.round(rr * Math.sqrt(1 - (dy / (ry + 0.5)) ** 2)); fg.fillRect(x - w, y + dy, w * 2 + 1, 1); }
+        }
+        fg.globalAlpha = 0.5; fg.fillStyle = "#0c0a08";
+        for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4, l = 6 + Math.random() * 10; for (let s = 14; s < 14 + l; s++) fg.fillRect(Math.round(x + Math.cos(a) * s), Math.round(y + Math.sin(a) * s * 0.55), 1, 1); }
+        fg.globalAlpha = 1;
+        continue;
+      }
       if (f.type !== "boom") continue;
       f.stamped = true;
       const r = f.r + 2, x = Math.round(f.x), y = Math.round(f.y);
@@ -295,7 +307,11 @@ export function createRenderer(canvas) {
     g.globalAlpha = 1;
   }
 
+  let lift = 0, carryX = 0, carryY = 0;   // the round-1 drop: how high the mech is, and (before release) where the ship has it
+  const ship = { cold: null, glow: null };
   function draw(run, dt, input) {
+    const ds = run.intro ? dropState(run) : null, carried = ds && !ds.released ? dropshipAt(run.intro.t) : null;
+    lift = ds ? ds.alt : 0; carryX = carried ? carried.dx : 0; carryY = carried ? carried.dy : 0;
     // a clean slate every frame: if the last one threw halfway (inside a rotate, a lighter blend, a low alpha),
     // that must not leak into this one (a missing sprite once left the whole city drawn tilted)
     for (const c of [g, lg, ctx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = "source-over"; }
@@ -391,7 +407,11 @@ export function createRenderer(canvas) {
       g.drawImage(s, X(sh.x0 + (sh.tx - sh.x0) * k) - (w >> 1), Y(sh.y0 + (sh.ty - sh.y0) * k));
     }
     for (const m of run.missiles) g.drawImage(shadow(3), X(m.x) - 1, Y(m.y));
-    { const sw = run.chassis.radius * 2; g.drawImage(shadow(sw), X(p.x) - (sw >> 1), Y(p.y) + 8); }
+    { const sw = Math.max(4, Math.round(run.chassis.radius * 2 * (1 - lift / 90))); g.drawImage(shadow(sw), X(p.x + carryX) - (sw >> 1), Y(p.y + carryY) + 8); }   // tightens as the mech drops
+    if (run.intro) {   // the dropship's shadow sweeping over the street
+      const o = dropshipAt(run.intro.t), sw = 46;
+      g.globalAlpha = 0.45; for (const dy of [10, 18, 26]) g.drawImage(shadow(dy === 18 ? sw : 30), X(p.x + o.dx + 12) - ((dy === 18 ? sw : 30) >> 1), Y(p.y + o.dy + dy)); g.globalAlpha = 1;
+    }
     g.fillStyle = "rgba(5,6,10,0.4)";
     for (const b of run.bolts) g.fillRect(X(b.x) - 1, Y(b.y), 3, 1);
     for (const s of run.shots) g.fillRect(X(s.x), Y(s.y), 1, 1);
@@ -435,6 +455,13 @@ export function createRenderer(canvas) {
       else drawShot(o, X, Y);
     }
     // airborne: flyers, missiles and shells are above the rooftops
+    if (run.intro) {   // the dropship, above everything (the mech hangs under it until the clamps let go)
+      const o = dropshipAt(run.intro.t), spr = ship.cold || (ship.cold = dropshipFrame());
+      const cy = Y(p.y + o.dy) - DROP.alt - 30;   // the hull sits above the hanging mech, which dangles under the tail
+      g.drawImage(spr, X(p.x + o.dx) - (spr.width >> 1), cy - (spr.height >> 1));
+      g.fillStyle = Math.floor(t * 30) % 2 ? "#fff1b0" : "#ffb347";   // the engine pods, blazing
+      for (const s of [-20, 20]) g.fillRect(X(p.x + o.dx + s) - 2, cy + 3, 5, 2);
+    }
     for (const e of run.enemies) if (e.d.flying) {
       const alt = altOf(e);
       drawEnemy(e, t, X, Y, false, alt);
@@ -698,6 +725,7 @@ export function createRenderer(canvas) {
     const bloom = 1 + 0.6 * d;
     for (const pl of run.pools || []) { const r = Math.round(pl.r * 1.1); g.drawImage(glowOf(r, "#3a1a08"), X(pl.x) - r, Y(pl.y - 3) - r); }
     for (const f of run.fx) if (f.type === "furnaceBeam") { const gl = glowOf(16, f.t / f.max > 0.5 ? "#7a3010" : "#3a1606"); for (let s = 0; s <= f.len; s += 14) g.drawImage(gl, X(f.x + Math.cos(f.a) * s) - 16, Y(f.y + Math.sin(f.a) * s) - 16); }
+    if (run.intro && run.chassisKey === "tempest") { const ds = dropState(run); if (ds.released && !ds.landed) g.drawImage(glowOf(12, "#1f6a8a"), X(p.x) - 12, Y(p.y + 9 - ds.alt) - 12); }   // riding down on its capacitor
     let halos = 0;   // hot particles glow (capped: a big fire can throw a few hundred)
     for (const q of run.parts) {
       if (!(q.spark || q.fire) || q.t / q.max < 0.3 || ++halos > 220) continue;
@@ -922,45 +950,45 @@ export function createRenderer(canvas) {
   }
   function mechLights(run, t) {
     const p = run.player, kind = run.chassisKey, P = mechSet(kind).cold, H = P.legY + P.legsH + 1, half = P.w >> 1;
-    const fi = p.moving ? Math.floor(t * 9) % 4 : 0, top = p.y + 10 - H + (p.moving && fi === 2 ? 1 : 0);
+    const fi = p.moving ? Math.floor(t * 9) % 4 : 0, top = p.y + carryY + 10 - H + (p.moving && fi === 2 ? 1 : 0) - Math.round(lift);
     const face = p.facing || "down", front = face === "down", back = face === "up", side = !front && !back, dir = face === "left" ? -1 : 1;
     const px = [], lights = [], cones = [], a = p.aim, dot = (x, y, col, lit) => px.push({ x, y, col, lit });
     const venting = run.cap.vent > 0;
     if (kind === "kestrel") {
       const eyes = front ? [-2, 2] : side ? [dir * 2] : [];
-      for (const ex of eyes) { dot(p.x + ex, top + 1, "#e0f8ff", true); dot(p.x + ex + (ex < 0 ? -1 : 1), top + 1, "#7fd8ff", true); }
-      if (back) { dot(p.x - 2, top + 1, "#ff3a4a", true); dot(p.x + 2, top + 1, "#ff3a4a", true); }   // tail lights
+      for (const ex of eyes) { dot((p.x + carryX) + ex, top + 1, "#e0f8ff", true); dot((p.x + carryX) + ex + (ex < 0 ? -1 : 1), top + 1, "#7fd8ff", true); }
+      if (back) { dot(p.x - 2, top + 1, "#ff3a4a", true); dot((p.x + carryX) + 2, top + 1, "#ff3a4a", true); }   // tail lights
       cones.push({ y: top + 1, a, R: 160, spread: 0.13, col: "#8ab0c8" });
-      lights.push({ x: p.x, y: p.y + 8, r: 40, col: "#5a1a52" });   // the underglow spills wide
+      lights.push({ x: (p.x + carryX), y: p.y + 8, r: 40, col: "#5a1a52" });   // the underglow spills wide
     } else if (kind === "bulwark") {
       const ba = t * 5, facing = Math.cos(ba) > 0;   // the beacon's mirror goes round
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(p.x - 1 + dx, top - 3 + dy, facing ? "#ffc040" : "#8a5a10", facing);
-      dot(p.x - 1, top - 1, "#16181e"); dot(p.x, top - 1, "#16181e");
+      dot(p.x - 1, top - 1, "#16181e"); dot((p.x + carryX), top - 1, "#16181e");
       cones.push({ y: top - 2, a: ba, R: 110, spread: 0.3, col: "#a0600c" });   // sweeps the street all the way round
-      if (!back) for (const wx of front ? [-(half - 1), -(half - 3), half - 3, half - 1] : [dir * (half - 1), dir * (half - 3)]) dot(p.x + wx, top + 2, "#fff4d0", true);
+      if (!back) for (const wx of front ? [-(half - 1), -(half - 3), half - 3, half - 1] : [dir * (half - 1), dir * (half - 3)]) dot((p.x + carryX) + wx, top + 2, "#fff4d0", true);
       cones.push({ y: top + 2, a, R: 104, spread: 1.15, col: "#7a7260" });
     } else if (kind === "tempest") {
       const n = 7, lit = venting ? n : Math.round(n * run.cap.charge), sx = front ? -3 : side ? (dir > 0 ? 0 : -6) : null;
-      if (sx !== null) for (let i = 0; i < n; i++) dot(p.x + sx + i, top + 5, venting ? (Math.floor(t * 8) % 2 ? "#ff5a3c" : "#5a1a10") : i < lit ? "#bff4ff" : "#1a3a4a", venting || i < lit);
+      if (sx !== null) for (let i = 0; i < n; i++) dot((p.x + carryX) + sx + i, top + 5, venting ? (Math.floor(t * 8) % 2 ? "#ff5a3c" : "#5a1a10") : i < lit ? "#bff4ff" : "#1a3a4a", venting || i < lit);
       const blue = Math.floor(t * 6) % 2;
-      for (const s of front || back ? [-1, 1] : [dir]) { const on = (s < 0) === !!blue; dot(p.x + s * (half - 1), top + 1, on ? "#6ab4ff" : "#1a2a4a", on); if (on) lights.push({ x: p.x + s * (half - 1), y: top + 1, r: 22, col: "#1a3a8a" }); }
+      for (const s of front || back ? [-1, 1] : [dir]) { const on = (s < 0) === !!blue; dot((p.x + carryX) + s * (half - 1), top + 1, on ? "#6ab4ff" : "#1a2a4a", on); if (on) lights.push({ x: (p.x + carryX) + s * (half - 1), y: top + 1, r: 22, col: "#1a3a8a" }); }
       const k = 0.5 + 0.5 * (venting ? 0 : run.cap.charge);
       cones.push({ y: top + 4, a, R: 100 + 30 * k, spread: 0.6, col: k > 0.9 ? "#6a8ab0" : "#4a5a7a" });
     } else {   // warden
       const strobe = Math.floor(t * 8) % 4;
       const span = front || back ? [-4, 4] : [-2, 3];
       for (let i = span[0]; i <= span[1]; i++) {
-        const x = p.x + (side ? dir * i : i), end = side ? i === -2 : Math.abs(i) === 4;
+        const x = (p.x + carryX) + (side ? dir * i : i), end = side ? i === -2 : Math.abs(i) === 4;
         dot(x, top - 2, "#16181e");
         if (end) { const on = side ? strobe % 2 === 0 : strobe === (i < 0 ? 0 : 2); dot(x, top - 1, on ? "#ffb020" : "#6a4410", on); if (on) lights.push({ x, y: top - 1, r: 26, col: "#b06a10" }); }
         else dot(x, top - 1, back ? "#16181e" : "#ffffff", !back);
       }
-      if (!back) for (const s of front ? [-1, 1] : [dir]) dot(p.x + s * (half - 1), top + 3, "#fff6d6", true);
+      if (!back) for (const s of front ? [-1, 1] : [dir]) dot((p.x + carryX) + s * (half - 1), top + 3, "#fff6d6", true);
       cones.push({ y: top - 1, a, R: 116, spread: 0.78, col: "#6a665a" });
       for (const s of [-1, 1]) cones.push({ y: top + 3, a: a + s * 0.62, R: 108, spread: 0.12, col: "#8a8474" });
     }
     const rc = rockColor(run);
-    lights.push({ x: p.x, y: p.y + 8, r: 30, col: rc }, { x: p.x, y: p.y + 8, r: 14, col: rc });
+    lights.push({ x: (p.x + carryX), y: p.y + 8, r: 30, col: rc }, { x: (p.x + carryX), y: p.y + 8, r: 14, col: rc });
     return { px, lights, cones };
   }
 
@@ -981,6 +1009,11 @@ export function createRenderer(canvas) {
       cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
     }
     if (weather.bolt) put(70, "#7a8ad0", weather.bolt.x, weather.bolt.y);   // the strike lights up the block it hits
+    if (run.intro) {   // the dropship: engine glow, nav lights and a floodlight on the drop point
+      const o = dropshipAt(run.intro.t), sx = p.x + o.dx, sy = p.y + o.dy - DROP.alt - 30, gs = ship.glow || (ship.glow = dropshipFrame(true));
+      lg.drawImage(gs, X(sx) - (gs.width >> 1), Y(sy) - (gs.height >> 1));
+      put(28, "#8a5a20", sx, sy + 4); cone(X(sx), Y(sy + 8), Math.PI / 2 + 0.2, 70, 0.35, "#8a8470");
+    }
     if (power.lit) {   // the frame's light package (see mechLights)
       const L = mechLights(run, t);
       for (const c of L.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);
@@ -1161,7 +1194,7 @@ export function createRenderer(canvas) {
   // Legs by the direction of travel, torso by the direction of aim (mirrored for left); weapons
   // drawn under or over the torso depending on which way it faces. between(): weapons behind.
   function composeMech(ctx2, P, p, X, Y, fi, between, after) {
-    const H = P.legY + P.legsH + 1, left = X(p.x) - (P.w >> 1), top = Y(p.y) + 10 - H;
+    const H = P.legY + P.legsH + 1, left = X(p.x + carryX) - (P.w >> 1), top = Y(p.y + carryY) + 10 - H - Math.round(lift);
     const legDir = p.legDir || "down", face = p.facing || "down";
     const legs = legDir === "left" || legDir === "right" ? P.legs.side[fi] : P.legs.front[fi];
     const torso = face === "up" ? P.torso.back : face === "down" ? P.torso.front : P.torso.side;
@@ -1194,7 +1227,7 @@ export function createRenderer(canvas) {
       const ws = frames[fr % frames.length];
       const dim = offline || (venting && def.family === "energy");
       g.save();
-      g.translate(X(mp.x + Math.cos(a) * off), Y(mp.y + Math.sin(a) * off) + bob);
+      g.translate(X(mp.x + Math.cos(a) * off + carryX), Y(mp.y + Math.sin(a) * off + carryY) + bob - Math.round(lift));
       g.rotate(a);
       if (Math.cos(a) < 0) g.scale(1, -1);   // keep it right side up when aiming left
       g.drawImage(ws, -1, -(ws.height >> 1));
@@ -1251,6 +1284,7 @@ export function createRenderer(canvas) {
     for (const [id] of burning) { const b = city.buildings[id]; blob((b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - 6, b.w * TILE * 0.6, 1.2); }
     for (const b of city.buildings) if (b.burn > 0 && !b.dead) blob((b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b) - 4, b.w * TILE * 0.55, 1.2);
     if (run.cap.vent > 0) blob(p.x, p.y - 12, 12, 0.9 * (run.cap.vent / (run.cap.ventMax || 1)));
+    if (run.intro) { const ds = dropState(run); if (ds.released && !ds.landed && run.chassisKey === "warden") blob(p.x, p.y + 12 - ds.alt, 9, 1.2); }
     for (const f of run.fx) {
       const k = f.t / f.max;
       if (f.type === "boom" && k > 0.3) blob(f.x, f.y - 4, f.r * 3.5, 1.4 * k);
@@ -1268,6 +1302,7 @@ export function createRenderer(canvas) {
       if (f.type === "boom" && f.r >= 5) out.push([X(f.x), Y(f.y), 3 + e * f.r * 5, 1.8 * k * Math.min(1, f.r / 10)]);
       else if (f.type === "ring" && f.thick) out.push([X(f.x), Y(f.y), f.r * (0.2 + e * 1.1), 2.2 * k]);
       else if (f.type === "collapse") out.push([X(f.x), Y(f.y), 6 + e * 55, 2 * k]);
+      else if (f.type === "slam") out.push([X(f.x), Y(f.y), 4 + e * 75, 3.2 * k]);
       else if (f.type === "punch") out.push([X(f.x), Y(f.y - 3), 2 + e * 20, 1.4 * k]);
     }
     return out.sort((a, b) => b[3] - a[3]).slice(0, 8);

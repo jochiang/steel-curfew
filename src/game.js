@@ -103,6 +103,66 @@ export function recompute(run) {
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
 }
 
+// ---------------------------------------------------------------- the round-1 drop (user: "a drop ship flying over and
+// the mech dropping and landing ... per mech landing animation"). main.js starts it on a fresh deploy (run.intro);
+// sims and bots never do. The ship flies in, lets go at DROP.release, and each frame comes down its own way.
+// Gameplay (and the wave clock) waits for touchdown + settle; the ship keeps flying off after that.
+export const DROP = { release: 1.1, alt: 46, end: 3.2 };
+const FALLS = {   // seconds from release to touchdown; ease > 1 = free fall, < 1 = braked; settle = crouch before control
+  kestrel: { fall: 0.42, ease: 2.2, settle: 0.4 },    // dropped fast, lands light and skids
+  warden:  { fall: 0.75, ease: 0.6, settle: 0.4 },    // retro-thrusters brake the last stretch
+  bulwark: { fall: 0.4, ease: 2.6, settle: 0.6 },     // no brakes: free fall and a slam
+  tempest: { fall: 1.1, ease: 1.0, settle: 0.4 },     // floats down on its capacitor
+};
+export function dropState(run) {
+  const I = run.intro, F = FALLS[run.chassisKey] || FALLS.warden, t = I ? I.t : 99, land = DROP.release + F.fall;
+  const alt = t < DROP.release ? DROP.alt : t < land ? DROP.alt * (1 - ((t - DROP.release) / F.fall) ** F.ease) : 0;
+  return { t, land, alt, released: t >= DROP.release, landed: t >= land, play: land + F.settle };
+}
+/** Where the dropship is, relative to the drop point: in, a hover, out (world offsets) */
+export function dropshipAt(t) {
+  const ease = (u) => u * u * (3 - 2 * u);
+  if (t < 0.95) { const u = ease(t / 0.95); return { dx: -190 + 190 * u, dy: 150 - 154 * u }; }
+  if (t < 1.35) return { dx: 0, dy: -4 + Math.sin((t - 0.95) * 8) * 1.2 };
+  const u = Math.min(1, (t - 1.35) / (DROP.end - 1.35)) ** 2; return { dx: 230 * u, dy: -4 - 170 * u };
+}
+function tickIntro(run, dt) {
+  const I = run.intro, p = run.player, was = dropState(run), k = run.chassisKey, rand = run.rand;
+  I.t += dt;
+  const now = dropState(run);
+  if (!was.released && now.released) run.events.push({ type: "dropRelease" });
+  if (now.released && !now.landed) {   // on the way down
+    const feet = p.y + 9 - now.alt;
+    if (k === "warden" && now.alt < DROP.alt * 0.7) for (const s of [-4, 4]) run.parts.push({ x: p.x + s, y: feet + 2, vx: (rand() - 0.5) * 8, vy: 60 + rand() * 40, t: 0.18, max: 0.18, color: rand() < 0.5 ? "#fff1b0" : "#ffb347", size: 1, fire: true });
+    if (k === "tempest" && rand() < dt * 30) run.parts.push({ x: p.x + (rand() - 0.5) * 14, y: feet + rand() * 3, vx: (rand() - 0.5) * 30, vy: (rand() - 0.5) * 10, t: 0.25, max: 0.25, color: rand() < 0.5 ? "#bff4ff" : "#4fb6de", size: 1, spark: true, energy: true });
+  }
+  if (!was.landed && now.landed) touchdown(run);
+  if (k === "kestrel" && now.landed && I.t < now.land + 0.3) {   // the skid
+    p.x += dt * 50 * (1 - (I.t - now.land) / 0.3);
+    if (rand() < dt * 40) run.parts.push({ x: p.x - 4, y: p.y + 8, vx: -20 - rand() * 20, vy: -rand() * 10, t: 0.5, max: 0.5, color: "#8c867c", size: 2, steam: true });
+  }
+  if (I.t > DROP.end) run.intro = null;
+  else if (I.t >= now.play) I.playing = true;
+}
+function touchdown(run) {
+  const p = run.player, k = run.chassisKey;
+  run.events.push({ type: "land", kind: k });
+  if (k === "bulwark") {   // the slam: a shockwave, a crater, and whatever was parked here
+    run.shake = Math.max(run.shake, 9); run.freeze = 0.12;
+    run.fx.push({ type: "slam", x: p.x, y: p.y + 6, t: 0.6, max: 0.6 }, { type: "dust", x: p.x, y: p.y + 8, r: 30, t: 0.6, max: 0.6 });
+    breakProps(run, p.x, p.y, 24);
+  } else if (k === "tempest") {
+    run.shake = Math.max(run.shake, 2);
+    run.fx.push({ type: "ring", x: p.x, y: p.y, r: 34, t: 0.45, max: 0.45, color: "#8fe3ff", thick: true });
+  } else if (k === "kestrel") {
+    run.shake = Math.max(run.shake, 2.5);
+    run.fx.push({ type: "dust", x: p.x, y: p.y + 8, r: 12, t: 0.5, max: 0.5 });
+  } else {
+    run.shake = Math.max(run.shake, 4.5);
+    run.fx.push({ type: "dust", x: p.x, y: p.y + 8, r: 20, t: 0.6, max: 0.6 });
+  }
+}
+
 // ---------------------------------------------------------------- the After-Action Report's ledger
 // Who is responsible for what happens right now: "you" by default, "invaders" while enemy code runs.
 // `credit` names the weapon (or other cause) behind damage to enemies.
@@ -201,6 +261,13 @@ export const weaponsOffline = (run) =>
 // ---------------------------------------------------------------- simulation
 export function update(run, dt, move) {
   if (run.phase !== "combat") return;
+  if (run.intro) {   // the round-1 drop: nothing else happens until the mech is down
+    if ((move.x || move.y) && run.intro.t > 0.25 && run.intro.t < DROP.release) run.intro.t = DROP.release;   // moving skips the approach
+    const playing = run.intro.t >= dropState(run).play;
+    run.intro.playing = playing;   // the HUD holds the wave banner until the mech is down
+    tickIntro(run, dt);
+    if (!playing) { tickFx(run, dt); return; }
+  }
   if (run.events.length > 256) run.events.length = 0;
   const s = run.stats, p = run.player, rand = run.rand, wave = waveDef(run.wave);
   run.time += dt; run.waveTime += dt;

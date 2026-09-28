@@ -328,6 +328,46 @@ const WASP = [
   ["w.....", "ww..oo", ".wwo43", "..o43E", "...o22", "....o1", "......"],
   ["......", "....oo", "...o43", "wwo43E", "www.22", "w...o1", "......"],
 ];
+// Dropship (the round-1 intro): a top-down VTOL transport, engine nacelles on the wingtips, an open
+// cargo bay the mech hangs under.
+const DROPSHIP = [
+  ".......................o",
+  "......................o4",
+  "......................o4",
+  ".....................o43",
+  ".....................oEE",
+  "....................o4EE",
+  "....................o4E3",
+  "....................o433",
+  "..ooooo............o4333",
+  ".o55554o...........o4332",
+  "o544443o..........o44332",
+  "oL44432o..........o43332",
+  "o443332ooooooooooo443332",
+  "o33k322o444444433o433322",
+  "o33k321o333333322o433222",
+  "o332221o222222211o332222",
+  "o222211oooooooooo4kkkkkk",
+  "ovvvvv1o........o3k....k",
+  ".ovvvvo.........o3k....k",
+  "..oooo..........o3k....k",
+  "................o2kkkkkk",
+  ".................o322221",
+  ".................o322211",
+  "..................o32211",
+  "..................o32211",
+  "...................o2211",
+  "...................o2211",
+  "...................o2211",
+  "....................o211",
+  ".............oooooooo211",
+  "............o5544433o211",
+  "............o4433322o211",
+  ".............ooooooo.o21",
+  "......................oo",
+];
+export const dropshipFrame = (glow = false) => build(DROPSHIP, palOf("steel", { E: "#ffe9a0", L: "#ff3b2e", k: "#15131b", v: "#ff9a4c" }), { sym: true, light: true, only: glow ? "ELv" : null });
+
 // Gunship (boss): top-down attack helicopter, stub wings with rocket pods and nav lights. The rotor is
 // drawn by the renderer (real rotation), not baked into the sprite.
 const GUNSHIP = [
