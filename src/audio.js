@@ -3,17 +3,25 @@
 // crowded screen doesn't turn into a wall of noise.
 
 let ac = null, master = null, noise = null, muted = false, comp = null;
+// Effects volume 0..1 (the settings slider). SFX_LEVEL is the master at full volume: effects sit a little
+// hotter than they used to and the music a little lower (user: "the music is louder than the effects").
+const SFX_LEVEL = 0.62;
+let sfxVol = 1;
 const unlockHooks = [];
 /** Run fn(ac, out) once audio is unlocked (out = the shared compressor, for the music engine) */
 export function onAudioReady(fn) { if (ac) fn(ac, comp); else unlockHooks.push(fn); }
-try { muted = localStorage.getItem("mech.muted") === "1"; } catch {}
+try {
+  const v = localStorage.getItem("mech.vol.sfx");
+  sfxVol = v != null ? Math.max(0, Math.min(1, +v)) : localStorage.getItem("mech.muted") === "1" ? 0 : 1;   // the old on/off switch carries over
+} catch {}
+muted = sfxVol === 0;
 
 export function unlock() {
   if (!ac) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ac = new AC();
-    master = ac.createGain(); master.gain.value = muted ? 0 : 0.55;
+    master = ac.createGain(); master.gain.value = SFX_LEVEL * sfxVol;
     comp = ac.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 6;
     master.connect(comp).connect(ac.destination);
@@ -27,10 +35,16 @@ export function unlock() {
 for (const ev of ["pointerdown", "keydown", "touchend"]) addEventListener(ev, unlock, { capture: true, passive: true });
 
 export const isMuted = () => muted;
+export const sfxVolume = () => sfxVol;
+export function setSfxVolume(v) {
+  sfxVol = Math.max(0, Math.min(1, v)); muted = sfxVol === 0;
+  try { localStorage.setItem("mech.vol.sfx", String(sfxVol)); } catch {}
+  if (master) master.gain.setTargetAtTime(SFX_LEVEL * sfxVol, ac.currentTime, 0.03);
+}
 export function setMuted(m) {
   muted = m;
   try { localStorage.setItem("mech.muted", m ? "1" : "0"); } catch {}
-  if (master) master.gain.setTargetAtTime(m ? 0 : 0.55, ac.currentTime, 0.02);
+  if (master) master.gain.setTargetAtTime(m ? 0 : SFX_LEVEL * sfxVol, ac.currentTime, 0.02);
 }
 
 // ---------------------------------------------------------------- voices

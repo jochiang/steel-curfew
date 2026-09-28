@@ -325,3 +325,25 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .aar-bars i { display: block; height: 6px; background: var(--accent); }
 .aar-bars b { text-align: right; font-family: var(--px); font-weight: 500; }
 .sub.bill { margin-top: 2px; font-size: 12px; color: var(--ballistic); }
+
+/* ------------------------------------------------------------------ title (for players) + settings */
+.title-head { position: relative; }
+.gear { position: absolute; top: -6px; right: -6px; width: 44px; height: 44px; display: grid; place-items: center; background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 0; }
+.gear svg { width: 20px; height: 20px; fill: currentColor; }
+.gear:hover, .gear:focus-visible { color: var(--text); border-color: var(--line-2); }
+.title-head .title-mech { margin-right: 44px; }
+.sub.tagline { color: var(--text); opacity: 0.85; margin-top: 6px; }
+.picks-group { display: grid; gap: 4px; margin-top: 6px; }
+.fam-label { font-family: var(--px); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+.fam-label.fam-ballistic { color: var(--ballistic); } .fam-label.fam-energy { color: var(--energy); } .fam-label.fam-melee { color: var(--melee); }
+.pick.compact { min-height: 44px; padding: 8px 10px; display: grid; align-content: center; gap: 2px; }
+.pick.compact b { font-size: 14px; }
+.pick.compact .lock-req { font-size: 11px; display: block; }   /* phones hide card descriptions; the unlock hint stays */
+.pick-groups { display: grid; gap: 10px; }
+.settings-overlay { position: fixed; inset: 0; z-index: 40; display: flex; overflow-y: auto; padding: calc(16px + var(--safe-t)) 16px calc(16px + var(--safe-b)); background: rgba(8, 9, 12, 0.78); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.settings-panel { text-align: left; gap: 12px; }
+.settings-panel h2 { text-align: center; }
+.set-row { display: grid; grid-template-columns: 5.2em 1fr 3.2em; align-items: center; gap: 10px; font-size: 14px; min-height: 44px; }
+.set-row output { text-align: right; font-family: var(--px); color: var(--muted); }
+.set-row .seg { grid-column: 2 / -1; margin: 0; }
+.set-row input[type="range"] { width: 100%; height: 32px; accent-color: var(--accent); }

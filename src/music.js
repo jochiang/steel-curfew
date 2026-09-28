@@ -249,8 +249,15 @@ function sectionFor(c, S) {
 }
 
 // ---------------------------------------------------------------- live engine
-let G = null, timer = 0, enabled = true;
-try { enabled = localStorage.getItem("mech.music") !== "0"; } catch {}
+// Music volume 0..1 (the settings slider); 0 stops the scheduler. Default 0.6 of the old level, so the
+// effects sit on top (user: "the music is louder than the effects by a fair bit").
+const BUS = 0.5;
+let G = null, timer = 0, enabled = true, vol = 0.6;
+try {
+  const v = localStorage.getItem("mech.vol.music");
+  vol = v != null ? Math.max(0, Math.min(1, +v)) : localStorage.getItem("mech.music") === "0" ? 0 : 0.6;   // the old on/off switch carries over
+} catch {}
+enabled = vol > 0;
 const S = { step: 0, section: "calm", next: null, urgent: false, phrase: 0, pos: 0, intensity: 0, danger: 0, targets: {}, stingers: [], nextT: 0, mode: "title" };
 
 onAudioReady((ac, out) => { G = makeGraph(ac, out); if (enabled) start(); });
@@ -258,7 +265,7 @@ onAudioReady((ac, out) => { G = makeGraph(ac, out); if (enabled) start(); });
 function start() {
   if (!G || timer) return;
   S.nextT = G.ac.currentTime + 0.12;
-  G.bus.gain.setTargetAtTime(0.5, G.ac.currentTime, 0.5);
+  G.bus.gain.setTargetAtTime(BUS * vol, G.ac.currentTime, 0.5);
   timer = setInterval(tick, 25);
 }
 function stop() {
@@ -274,6 +281,12 @@ function tick() {
 }
 
 export const musicEnabled = () => enabled;
+export const musicVolume = () => vol;
+export function setMusicVolume(v) {
+  vol = Math.max(0, Math.min(1, v)); enabled = vol > 0;
+  try { localStorage.setItem("mech.vol.music", String(vol)); } catch {}
+  if (!enabled) stop(); else if (!timer) start(); else if (G) G.bus.gain.setTargetAtTime(BUS * vol, G.ac.currentTime, 0.1);
+}
 export function setMusicEnabled(on) {
   enabled = on;
   try { localStorage.setItem("mech.music", on ? "1" : "0"); } catch {}
@@ -295,7 +308,7 @@ export function updateMusic(c, dt) {
   for (const [k, v] of Object.entries(S.targets)) G.stems[k].gain.setTargetAtTime(v, now, 1.2);
   // muffle the music while paused or venting (the coolant roar takes over)
   G.filt.frequency.setTargetAtTime(c.paused ? 700 : c.vent ? 1400 : 18000, now, 0.25);
-  G.bus.gain.setTargetAtTime(c.paused ? 0.3 : 0.5, now, 0.3);
+  G.bus.gain.setTargetAtTime((c.paused ? 0.3 : BUS) * vol, now, 0.3);
 }
 
 /** Queue a stinger (clear | boss | dead | won); it lands on the next beat. */

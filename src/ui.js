@@ -5,8 +5,8 @@ import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits, darkness, timeLabel,
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
 } from "./game.js";
-import { isMuted, setMuted, ui as sfx } from "./audio.js";
-import { musicEnabled, setMusicEnabled } from "./music.js";
+import { ui as sfx, sfxVolume, setSfxVolume } from "./audio.js";
+import { musicVolume, setMusicVolume } from "./music.js";
 import { mechFrames } from "./art.js";
 import { afterAction, billSoFar } from "./report.js";
 import { isUnlocked, UNLOCKS, getMeta, setUnlockAll, savedRunSummary, saveSettings } from "./meta.js";
@@ -17,21 +17,51 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const FAM = { ballistic: "Ballistic", energy: "Energy", melee: "Melee", module: "Module" };
 const fmt = (n) => (Math.round(n * 10) / 10).toString();
 
-const soundBtn = () => `<button class="ghost sound" data-sound aria-pressed="${!isMuted()}">Sound: ${isMuted() ? "off" : "on"}</button>`
-  + `<button class="ghost sound" data-music aria-pressed="${musicEnabled()}">Music: ${musicEnabled() ? "on" : "off"}</button>`;
-function toggleSound(b) { setMuted(!isMuted()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
-const ZOOM_ORDER = ["close", "normal", "wide"];
-const zoomBtn = () => `<button class="ghost sound" data-zoom>Zoom: ${getMeta().settings.zoom || "close"}</button>`;
-function cycleZoom(b) {
-  const cur = getMeta().settings.zoom || "close", next = ZOOM_ORDER[(ZOOM_ORDER.indexOf(cur) + 1) % ZOOM_ORDER.length];
-  saveSettings({ zoom: next });
-  dispatchEvent(new CustomEvent("mech:zoom", { detail: next }));
-  b.outerHTML = zoomBtn(); sfx("click");
-}
-function toggleMusic(b) { setMusicEnabled(!musicEnabled()); b.parentElement.querySelectorAll("[data-sound],[data-music]").forEach((x, i) => { if (i === 0) x.outerHTML = soundBtn(); else x.remove(); }); sfx("click"); }
 
 export function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
+}
+
+// ---------------------------------------------------------------- settings (a sheet over the title or the pause screen)
+const ZOOMS_UI = [["close", "Close"], ["normal", "Normal"], ["wide", "Wide"]];
+export function openSettings(onClose) {
+  document.getElementById("settings")?.remove();
+  const el = document.createElement("div");
+  el.id = "settings"; el.className = "settings-overlay";
+  const zoom = getMeta().settings.zoom || "close", pct = (v) => Math.round(v * 100);
+  el.innerHTML = `
+    <div class="panel small-panel settings-panel" role="dialog" aria-label="Settings">
+      <h2>Settings</h2>
+      <label class="set-row"><span>Music</span><input type="range" min="0" max="100" step="5" value="${pct(musicVolume())}" data-vol="music"><output>${pct(musicVolume())}%</output></label>
+      <label class="set-row"><span>Effects</span><input type="range" min="0" max="100" step="5" value="${pct(sfxVolume())}" data-vol="sfx"><output>${pct(sfxVolume())}%</output></label>
+      <div class="set-row"><span>Zoom</span><div class="seg seg3">${ZOOMS_UI.map(([k, n]) => `<button data-zoomset="${k}" class="${zoom === k ? "on" : ""}">${n}</button>`).join("")}</div></div>
+      ${fsSupported() ? `<button class="ghost" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button>`
+        : isIOS() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
+      <label class="toggle"><input type="checkbox" data-unlockall ${getMeta().unlockAll ? "checked" : ""}> Unlock everything <em>(for testing)</em></label>
+      <button class="primary" data-close>Done</button>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener("input", (e) => {
+    const r = e.target.closest("[data-vol]"); if (!r) return;
+    const v = +r.value / 100;
+    (r.dataset.vol === "music" ? setMusicVolume : setSfxVolume)(v);
+    r.nextElementSibling.textContent = `${r.value}%`;
+  });
+  el.addEventListener("change", (e) => {
+    if (e.target.dataset.vol === "sfx") sfx("click");   // hear the new level
+    if ("unlockall" in e.target.dataset) setUnlockAll(e.target.checked);
+  });
+  el.onclick = (e) => {
+    if (e.target === el) return close();   // tap outside the panel
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.zoomset) {
+      saveSettings({ zoom: b.dataset.zoomset }); dispatchEvent(new CustomEvent("mech:zoom", { detail: b.dataset.zoomset }));
+      el.querySelectorAll("[data-zoomset]").forEach((x) => x.classList.toggle("on", x === b)); sfx("click");
+    }
+    if ("fs" in b.dataset) toggleFullscreen().then(() => { b.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; });
+    if ("close" in b.dataset) { sfx("click"); close(); }
+  };
+  function close() { el.remove(); onClose?.(); }
 }
 
 // ---------------------------------------------------------------- title
@@ -66,35 +96,30 @@ export function renderTitle(opts, onDeploy, onResume) {
         <span class="chips">${isUnlocked("chassis", k) ? hpChips(c.hardpoints) : `<span class="lock-req">🔒 ${esc(UNLOCKS.chassis[k].req)}</span>`}</span>
       </span>
     </button>`).join("");
-  const cards = Object.entries(WEAPONS).filter(([, w]) => canMount(ch, w.family)).map(([k, w]) => isUnlocked("weapons", k) ? `
-    <button class="pick fam-${w.family}${opts.start === k ? " on" : ""}" data-start="${k}">
-      <span class="tag">${FAM[w.family]}</span>
-      <b>${esc(w.name)}</b>
-      <small>${esc(w.desc)}</small>
-    </button>` : `
-    <button class="pick locked" disabled>
-      <span class="tag">${FAM[w.family]}</span>
-      <b>${esc(w.name)}</b>
-      <small class="lock-req">🔒 ${esc(UNLOCKS.weapons[k].req)}</small>
-    </button>`).join("");
+  const card = ([k, w]) => isUnlocked("weapons", k) ? `
+    <button class="pick compact fam-${w.family}${opts.start === k ? " on" : ""}" data-start="${k}"><b>${esc(w.name)}</b></button>` : `
+    <button class="pick compact locked" disabled><b>${esc(w.name)}</b><small class="lock-req">🔒 ${esc(UNLOCKS.weapons[k].req)}</small></button>`;
+  const cards = ["ballistic", "energy", "melee"].map((fam) => {
+    const list = Object.entries(WEAPONS).filter(([, w]) => w.family === fam && canMount(ch, fam));
+    return list.length ? `<div class="picks-group"><span class="fam-label fam-${fam}">${FAM[fam]}</span><div class="picks">${list.map(card).join("")}</div></div>` : "";
+  }).join("");
   const sel = WEAPONS[opts.start];
   el.innerHTML = `
     <div class="panel title-panel">
-      <div class="title-head"><h1>STEEL<span>CURFEW</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas></div>
-      <p class="sub">prototype · 5 waves · procedural city${car.runs ? ` · best wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? ` (+${car.bestCurfew} past curfew)` : ""} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}` : ""}</p>
+      <div class="title-head"><h1>STEEL<span>CURFEW</span></h1><canvas class="title-mech" width="25" height="25" aria-hidden="true"></canvas>
+        <button class="gear" data-settings aria-label="Settings"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6zm6.3 3.7-.1-1.8 1.4-1.1-1.5-2.6-1.7.6a5.8 5.8 0 0 0-1.5-.9L10.6 1H7.4L7 3.1c-.5.2-1 .5-1.5.9l-1.7-.6L2.4 6l1.4 1.1-.1.9.1.9-1.4 1.1 1.5 2.6 1.7-.6c.5.4 1 .7 1.5.9l.4 2.1h3.1l.4-2.1c.5-.2 1-.5 1.5-.9l1.7.6 1.5-2.6z"/></svg></button></div>
+      <p class="sub tagline">Hold the city until curfew. Try not to flatten it doing so.</p>
+      ${car.runs ? `<p class="sub career">Best: wave ${Math.min(car.bestWave, WAVES.length)}${car.bestCurfew ? `, +${car.bestCurfew} past curfew` : ""} · ${car.runs} run${car.runs > 1 ? "s" : ""}${car.wins ? ` · ${car.wins} won` : ""}</p>` : ""}
       ${lastErrorBox()}
       ${resume ? `<button class="resume" data-resume>Resume run <span>${resume.curfew ? `past curfew +${resume.curfew}` : `wave ${resume.wave}`} · ${esc(CHASSIS[resume.chassis]?.name || "")} · pilot level ${resume.level}</span></button>` : ""}
       <h3>Frame</h3>
       <div class="frames">${frames}</div>
       <p class="pick-desc frame-desc"><b>${esc(ch.name)}:</b> ${esc(ch.blurb)} <em>${esc(ch.quirk)}.</em></p>
       <h3>Starting weapon</h3>
-      <div class="picks">${cards}</div>
+      <div class="pick-groups">${cards}</div>
       <p class="pick-desc fam-${sel.family}"><b>${esc(sel.name)}:</b> ${esc(sel.desc)}</p>
-      <label class="toggle"><input type="checkbox" data-unlockall ${meta.unlockAll ? "checked" : ""}> Unlock everything <em>(testing)</em></label>
       <button class="primary" data-deploy>Deploy</button>
-      <p class="hint">Move with <kbd>WASD</kbd> / arrows, or touch and drag anywhere. Weapons fire on their own.</p>
-      <div class="title-foot">${soundBtn()}${zoomBtn()}<button class="ghost fs-btn" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button></div>
-      ${isIOS() && !fsSupported() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
+      <p class="hint">${matchMedia("(pointer: coarse)").matches ? "Drag anywhere to move." : "Move with <kbd>WASD</kbd> or the arrow keys."} Your weapons aim and fire on their own.</p>
     </div>`;
   syncFs();
   const le = el.querySelector(".lasterr");
@@ -103,7 +128,6 @@ export function renderTitle(opts, onDeploy, onResume) {
     if ("copyerr" in b.dataset) { const text = localStorage.getItem("mech.lastError") || ""; navigator.clipboard?.writeText(text).then(() => (b.textContent = "Copied"), () => (b.textContent = "Copy failed: select the text")); }
     if ("clearerr" in b.dataset) { try { localStorage.removeItem("mech.lastError"); } catch {} le.remove(); }
   };
-  el.querySelector("[data-unlockall]").onchange = (e) => { setUnlockAll(e.target.checked); renderTitle(opts, onDeploy, onResume); };
   for (const cv of el.querySelectorAll(".frame-art")) {
     const f = mechFrames(cv.dataset.art, false)[0], g = cv.getContext("2d");
     g.drawImage(f, (cv.width - f.width) >> 1, cv.height - f.height);
@@ -111,10 +135,7 @@ export function renderTitle(opts, onDeploy, onResume) {
   el.onclick = (e) => {
     const b = e.target.closest("button");
     if (!b) return;
-    if ("sound" in b.dataset) return toggleSound(b);
-    if ("music" in b.dataset) return toggleMusic(b);
-    if ("zoom" in b.dataset) return cycleZoom(b);
-    if ("fs" in b.dataset) { toggleFullscreen().then(() => renderTitle(opts, onDeploy, onResume)); return; }
+    if ("settings" in b.dataset) { sfx("click"); return openSettings(() => renderTitle(opts, onDeploy, onResume)); }
     sfx("click");
     if ("resume" in b.dataset) return onResume();
     if (b.dataset.chassis) opts.chassis = b.dataset.chassis;
@@ -311,15 +332,12 @@ export function renderPaused(run, onResume, onQuit) {
       <h2>Paused</h2>
       <p class="sub">Wave ${run.wave + 1} · ${run.kills} wrecks</p>
       <button class="primary" data-resume>Resume</button>
-      ${soundBtn()}
-      ${zoomBtn()}
+      <button class="ghost" data-settings>Settings</button>
       <button class="ghost" data-quit>Abandon run</button>
     </div>`;
   el.onclick = (e) => {
     const b = e.target.closest("button");
-    if (b?.dataset.sound !== undefined) return toggleSound(b);
-    if (b?.dataset.music !== undefined) return toggleMusic(b);
-    if (b?.dataset.zoom !== undefined) return cycleZoom(b);
+    if (b?.dataset.settings !== undefined) { sfx("click"); return openSettings(); }
     if (b?.dataset.resume !== undefined) onResume();
     if (b?.dataset.quit !== undefined) onQuit();
   };
