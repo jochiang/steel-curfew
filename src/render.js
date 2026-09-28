@@ -74,17 +74,6 @@ function shadowSprite(w) {
   return c;
 }
 
-function vignette(w, h) {
-  const c = new OffscreenCanvas(w, h), g = c.getContext("2d");
-  for (let i = 0; i < 6; i++) {
-    const k = i / 6;
-    g.fillStyle = "rgba(4,5,8,0.07)";
-    const mx = Math.round(w * 0.5 * (1 - k) * 0.35), my = Math.round(h * 0.5 * (1 - k) * 0.35);
-    g.fillRect(0, 0, w, my); g.fillRect(0, h - my, w, my);
-    g.fillRect(0, my, mx, h - 2 * my); g.fillRect(w - mx, my, mx, h - 2 * my);
-  }
-  return c;
-}
 
 // ---------------------------------------------------------------- renderer
 export function createRenderer(canvas) {
@@ -130,7 +119,7 @@ export function createRenderer(canvas) {
   const wdim = Object.fromEntries(Object.entries(wspr).map(([k, fr]) => [k, fr.map((f) => flash(f, "#2a1c1a"))]));
   const burning = new Map();    // building id -> run.time when its rubble stops burning
 
-  let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.close;
+  let S = 1, vw = 0, vh = 0, dpr = 1, vignetteFill = null, target = ZOOMS.close;
   const cam = { x: ARENA.w / 2, y: ARENA.h / 2, init: false };
 
   // ---- shaders (gl.js): a WebGL canvas under the game canvas takes the finished buffer plus a heat mask and
@@ -157,7 +146,6 @@ export function createRenderer(canvas) {
     buf.width = vw + 2; buf.height = vh + 2;
     light.width = buf.width; light.height = buf.height;
     heat.width = buf.width; heat.height = buf.height;
-    vig = vignette(buf.width, buf.height);
   }
   resize();
   addEventListener("resize", resize);
@@ -323,7 +311,7 @@ export function createRenderer(canvas) {
     const lit = d > 0.06, night = d > 0.5;   // lit: use the light map; night: windows and signs are on
     const storm = tickWeather(run, dt, d, left, top);   // rain + lightning (render-only)
     const lightsOn = lightsPower(run, d);
-    const tod = { ambient: storm.flash > 0 ? mixRgb(ambientAt(d), [196, 206, 240], storm.flash * 0.85) : ambientAt(d), vig: 1, d };   // one vignette pass: a second one hid enemies coming in from the edges
+    const tod = { ambient: storm.flash > 0 ? mixRgb(ambientAt(d), [196, 206, 240], storm.flash * 0.85) : ambientAt(d), d };
     const inView = (x0, y0, x1, y1) => x1 >= left - 4 && x0 <= left + vw + 4 && y1 >= top - 4 && y0 <= top + vh + 4;
 
     g.globalCompositeOperation = "source-over"; g.globalAlpha = 1; g.imageSmoothingEnabled = false;
@@ -745,7 +733,6 @@ export function createRenderer(canvas) {
       g.drawImage(glowOf(r, "#0f3346"), X(p.x) - r, Y(p.y) - 3 - r);
     }
     g.globalCompositeOperation = "source-over";
-    for (let i = 0; i < tod.vig; i++) g.drawImage(vig, 0, 0);
 
     // ---- blit to screen
     ctx.imageSmoothingEnabled = false;
@@ -758,6 +745,10 @@ export function createRenderer(canvas) {
     glCanvas.style.display = viaGL ? "block" : "none";
     if (viaGL) ctx.clearRect(0, 0, canvas.width, canvas.height);   // the scene is on the GL canvas below; this one keeps the text and UI
     else ctx.drawImage(buf, -(1 + fx) * S, -(1 + fy) * S, buf.width * S, buf.height * S);
+    // vignette: a smooth ellipse at screen resolution (a stepped one at game resolution showed big bands on bright days)
+    ctx.save(); ctx.setTransform(canvas.width / 2, 0, 0, canvas.height / 2, canvas.width / 2, canvas.height / 2);
+    ctx.fillStyle = vignetteFill || (vignetteFill = (() => { const gr = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 1.45); gr.addColorStop(0, "rgba(4,5,8,0)"); gr.addColorStop(0.55, "rgba(4,5,8,0.16)"); gr.addColorStop(1, "rgba(4,5,8,0.5)"); return gr; })());
+    ctx.fillRect(-1, -1, 2, 2); ctx.restore();
 
     // ---- native-res layer
     const toScreen = (wx, wy) => [(wx - left) * S, (wy - top) * S];
