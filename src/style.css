@@ -31,6 +31,7 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 canvas#game { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; image-rendering: pixelated; }
+canvas#gl { position: fixed; inset: 0; width: 100vw; height: 100dvh; pointer-events: none; }   /* shader output, under the game canvas */
 button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
 button:disabled { cursor: default; }
 [hidden] { display: none !important; }

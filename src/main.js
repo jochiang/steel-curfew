@@ -25,6 +25,7 @@ const hudEl = document.getElementById("hud");
 const input = createInput(canvas);
 const renderer = createRenderer(canvas);
 renderer.setZoom(getMeta().settings.zoom || "close");
+renderer.setShaders(getMeta().settings.shaders !== false && !params.has("noshaders"));   // on by default; ?noshaders for a quick compare
 
 if (params.has("unlockall")) unlockForSession();
 const saved = getMeta().settings;   // last choices, unless the URL says otherwise
@@ -211,4 +212,5 @@ window.__mech.music = musicState;
 window.__mech.lastError = () => { try { return JSON.parse(localStorage.getItem("mech.lastError")); } catch { return null; } };
 window.__mech.renderer = renderer;
 addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
+addEventListener("mech:shaders", (e) => renderer.setShaders(e.detail));
 requestAnimationFrame(frame);

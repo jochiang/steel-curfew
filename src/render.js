@@ -4,6 +4,7 @@ import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
 import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
+import { createCompositor } from "./gl.js";
 
 // The world is drawn into a small buffer (about 180 game px on the short side by default) and blown up by an
 // integer factor, so pixels stay square. The camera moves smoothly: the buffer is drawn one pixel
@@ -132,14 +133,30 @@ export function createRenderer(canvas) {
   let S = 1, vw = 0, vh = 0, dpr = 1, vig = null, target = ZOOMS.close;
   const cam = { x: ARENA.w / 2, y: ARENA.h / 2, init: false };
 
+  // ---- shaders (gl.js): a WebGL canvas under the game canvas takes the finished buffer plus a heat mask and
+  // does bloom, heat haze and shockwaves; the game canvas above then only carries the native-res text and UI.
+  // Off (setting) or unavailable / context lost: the plain Canvas2D blit, as before.
+  const glCanvas = document.createElement("canvas");
+  glCanvas.id = "gl"; glCanvas.setAttribute("aria-hidden", "true"); glCanvas.style.display = "none";
+  canvas.parentNode.insertBefore(glCanvas, canvas);
+  const heat = new OffscreenCanvas(8, 8), hg = heat.getContext("2d");
+  let gfx = null, shaders = false;
+  function setShaders(on) {
+    shaders = !!on;
+    if (shaders && !gfx) gfx = createCompositor(glCanvas);
+    glCanvas.style.display = shaders && gfx ? "block" : "none";
+  }
+
   function resize() {
     dpr = Math.min(3, window.devicePixelRatio || 1);
     const bw = Math.round(innerWidth * dpr), bh = Math.round(innerHeight * dpr);
     canvas.width = bw; canvas.height = bh;
+    glCanvas.width = bw; glCanvas.height = bh;
     S = Math.max(1, Math.round(Math.min(bw, bh) / target));
     vw = Math.ceil(bw / S); vh = Math.ceil(bh / S);
     buf.width = vw + 2; buf.height = vh + 2;
     light.width = buf.width; light.height = buf.height;
+    heat.width = buf.width; heat.height = buf.height;
     vig = vignette(buf.width, buf.height);
   }
   resize();
@@ -732,7 +749,15 @@ export function createRenderer(canvas) {
 
     // ---- blit to screen
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(buf, -(1 + fx) * S, -(1 + fy) * S, buf.width * S, buf.height * S);
+    let viaGL = false;
+    if (shaders && gfx && gfx.ok) {
+      paintHeat(run, X, Y, t);
+      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7 }); }
+      catch (e) { gfx.ok = false; console.error("shaders off:", e); }   // e.g. a browser that can't upload an OffscreenCanvas: Canvas2D from now on
+    }
+    glCanvas.style.display = viaGL ? "block" : "none";
+    if (viaGL) ctx.clearRect(0, 0, canvas.width, canvas.height);   // the scene is on the GL canvas below; this one keeps the text and UI
+    else ctx.drawImage(buf, -(1 + fx) * S, -(1 + fy) * S, buf.width * S, buf.height * S);
 
     // ---- native-res layer
     const toScreen = (wx, wy) => [(wx - left) * S, (wy - top) * S];
@@ -1225,6 +1250,38 @@ export function createRenderer(canvas) {
     }
   }
 
+  // the heat mask: soft white where something is hot (napalm, fires, a venting mech, blasts, muzzles, beams)
+  function paintHeat(run, X, Y, t) {
+    hg.globalCompositeOperation = "source-over"; hg.clearRect(0, 0, heat.width, heat.height);
+    hg.globalCompositeOperation = "lighter";
+    const blob = (x, y, r, a) => { if (a <= 0.02) return; r = Math.max(2, Math.round(r)); hg.globalAlpha = Math.min(1, a); hg.drawImage(glowOf(r, "#ffffff"), X(x) - r, Y(y) - r); };
+    const p = run.player, city = run.city;
+    for (const pl of run.pools || []) blob(pl.x, pl.y - 5, pl.r * 1.3, 1.2 * Math.min(1, (pl.t / pl.max) * 2));
+    for (const [id] of burning) { const b = city.buildings[id]; blob((b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - 6, b.w * TILE * 0.6, 1.2); }
+    for (const b of city.buildings) if (b.burn > 0 && !b.dead) blob((b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b) - 4, b.w * TILE * 0.55, 1.2);
+    if (run.cap.vent > 0) blob(p.x, p.y - 12, 12, 0.9 * (run.cap.vent / (run.cap.ventMax || 1)));
+    for (const f of run.fx) {
+      const k = f.t / f.max;
+      if (f.type === "boom" && k > 0.3) blob(f.x, f.y - 4, f.r * 3.5, 1.4 * k);
+      else if (f.type === "muzzle") blob(f.x, f.y, 7, 0.9 * k);
+      else if (f.type === "flamecone") blob(f.x, f.y - 4, 16, 1.2);
+      else if (f.type === "furnaceBeam") for (let s = 0; s <= f.len; s += 12) blob(f.x + Math.cos(f.a) * s, f.y + Math.sin(f.a) * s, 13, 1.3 * k);
+    }
+    hg.globalAlpha = 1; hg.globalCompositeOperation = "source-over";
+  }
+  // shockwaves: refracting rings from blasts, the Pulse Emitter, collapses and punches (the 8 strongest)
+  function shockwaves(run, X, Y) {
+    const out = [];
+    for (const f of run.fx) {
+      const k = f.t / f.max, e = 1 - k;
+      if (f.type === "boom" && f.r >= 5) out.push([X(f.x), Y(f.y), 3 + e * f.r * 5, 1.8 * k * Math.min(1, f.r / 10)]);
+      else if (f.type === "ring" && f.thick) out.push([X(f.x), Y(f.y), f.r * (0.2 + e * 1.1), 2.2 * k]);
+      else if (f.type === "collapse") out.push([X(f.x), Y(f.y), 6 + e * 55, 2 * k]);
+      else if (f.type === "punch") out.push([X(f.x), Y(f.y - 3), 2 + e * 20, 1.4 * k]);
+    }
+    return out.sort((a, b) => b[3] - a[3]).slice(0, 8);
+  }
+
   const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.close; resize(); };
-  return { draw, resize, setZoom, get scale() { return S; }, get view() { return { vw, vh }; } };
+  return { draw, resize, setZoom, setShaders, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
 }
