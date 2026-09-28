@@ -171,10 +171,10 @@ export function setRain(level) {
     const s = ac.createBufferSource(), hp = ac.createBiquadFilter(), lp = ac.createBiquadFilter();
     rainGain = ac.createGain(); rainGain.gain.value = 0;
     s.buffer = noise; s.loop = true;
-    hp.type = "highpass"; hp.frequency.value = 900; lp.type = "lowpass"; lp.frequency.value = 5200;
+    hp.type = "highpass"; hp.frequency.value = 900; lp.type = "lowpass"; lp.frequency.value = 3600;   // softer top end: bright hiss reads louder than it is
     s.connect(hp).connect(lp).connect(rainGain).connect(master); s.start();
   }
-  rainGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.07, ac.currentTime, 0.6);
+  rainGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.04, ac.currentTime, 0.6);   // was 0.07 (user: "a little hot")
 }
 
 /** Play and clear queued game events */
