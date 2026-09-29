@@ -1309,5 +1309,5 @@ export function createRenderer(canvas) {
   }
 
   const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.close; resize(); };
-  return { draw, resize, setZoom, setShaders, strike: () => { weather.next = 0; } /* test hook: a lightning strike next frame, in heavy rain */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
+  return { draw, resize, setZoom, setShaders, test: { strike: () => { weather.next = 0; } } /* test-only, see the block at the end of main.js */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
 }

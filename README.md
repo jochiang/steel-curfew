@@ -21,6 +21,8 @@ npm run build    # static build in dist/
 
 Balance tools (Node, no browser): `node tools/sim.mjs`, `node tools/balance.mjs`, `node tools/pressure.mjs`, `node tools/fuzz.mjs`.
 
+Test hooks (URL knobs like `?go&wave=5&seed=3`, and `window.__mech`) are listed in one block at the end of `src/main.js`. Nothing in the game depends on them, so change them freely.
+
 ## License
 
 MIT. The Pixelify Sans font is under the SIL Open Font License.

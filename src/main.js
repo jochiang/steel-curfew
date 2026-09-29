@@ -6,13 +6,13 @@ import { createRenderer } from "./render.js";
 import { newRun, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
-import { play, setRain } from "./audio.js";
+import { play, setRain, probe, SFX_NAMES } from "./audio.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs } from "./fullscreen.js";
-import { updateMusic, stinger, musicState } from "./music.js";
+import { updateMusic, stinger, musicState, renderPreview } from "./music.js";
 import { WAVES } from "./content.js";
 import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
-// URL knobs for testing: ?chassis=bulwark&start=lance&vent=energy&target=nearest&seed=1&wave=3&tod=night&go (skip title) &bot (autopilot) &endless (bot stays out) &ts=4 (time scale)
+// URL knobs for testing: see the test hooks block at the end of this file
 const params = new URLSearchParams(location.search);
 const BOT = params.has("bot");
 const TIME_SCALE = Math.max(0.1, Math.min(16, +params.get("ts") || 1));
@@ -205,14 +205,27 @@ function musicContext() {
   };
 }
 
-// test hook
-window.__mech = { get run() { return run; }, get paused() { return paused; }, deploy, pause, resume, opts };
-
+// ---------------------------------------------------------------- test hooks
+// Everything the game offers to test and tooling scripts, in one place. Nothing in the game depends on any of it:
+// change or remove freely (tools/ and any external scripts adapt; the game itself won't notice).
+//
+// URL knobs (read above):
+//   ?go            skip the title and deploy      ?bot        autopilot + auto-shop (bot.js)   ?endless  the bot stays out past curfew
+//   ?chassis=kestrel|warden|bulwark|tempest   ?start=<weapon key>   ?seed=N   ?wave=N (6+ = past curfew)   ?tod=day|dusk|night
+//   ?ts=0.1..16    time scale                     ?unlockall  unlock everything this session    ?target=crowd|heavies|nearest
+//   ?vent=energy   the old energy-only vent mode  ?intro / ?nointro  force or skip the round-1 drop (?go skips it by default)
+//   ?noshaders     plain Canvas2D output          ?sheet / ?sheet2  sprite sheets instead of the game
+//
+// window.__mech: live handles (run, paused, deploy, pause, resume, resumeRun, opts, renderer, music, lastError), plus
+// window.__mech.test: helpers with no use in the game: strike() (lightning now, heavy rain only), probe(type, e, filter, raw)
+// (render one sound effect offline), sfxNames, renderPreview(timeline, bars) (render the score offline).
+window.__mech = {
+  get run() { return run; }, get paused() { return paused; }, deploy, pause, resume, resumeRun, opts, renderer,
+  music: musicState,
+  lastError: () => { try { return JSON.parse(localStorage.getItem("mech.lastError")); } catch { return null; } },
+  test: { strike: renderer.test.strike, probe, sfxNames: SFX_NAMES, renderPreview },
+};
 if (params.has("go")) deploy(); else toTitle();
-window.__mech.resumeRun = resumeRun;
-window.__mech.music = musicState;
-window.__mech.lastError = () => { try { return JSON.parse(localStorage.getItem("mech.lastError")); } catch { return null; } };
-window.__mech.renderer = renderer;
 addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
 addEventListener("mech:shaders", (e) => renderer.setShaders(e.detail));
 requestAnimationFrame(frame);

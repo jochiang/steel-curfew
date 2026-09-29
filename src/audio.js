@@ -185,8 +185,8 @@ export function play(events) {
 }
 export function ui(type) { if (ac && !muted && ac.state === "running") SFX[type]?.({}); }
 
-/** Test hook: render one effect offline and measure it (peak, RMS, audible length); `raw` also returns the samples
- *  (the trailer tool mixes the game's own effects onto its soundtrack). */
+/** Test-only (see the test hooks block in main.js): render one effect offline and measure it (peak, RMS, audible
+ *  length); `raw` also returns the samples. */
 export async function probe(type, e = {}, filter = null, raw = false) {
   const saved = [ac, master, noise, Math.random];
   const off = new OfflineAudioContext(1, 44100 * 2, 44100);

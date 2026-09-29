@@ -316,7 +316,7 @@ export function stinger(kind) { if (STINGERS[kind]) S.stingers.push(STINGERS[kin
 
 // ---------------------------------------------------------------- offline preview (for listening tests)
 /** Render a scripted timeline to an AudioBuffer: timeline = [[bar, context, stinger?], ...] */
-export async function renderPreview(timeline, bars) {
+export async function renderPreview(timeline, bars) {   // test-only (see the test hooks block in main.js)
   const sr = 44100, dur = bars * 16 * STEP + 3;
   const off = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
   const comp = off.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6; comp.connect(off.destination);
