@@ -17,7 +17,7 @@ const PER_HP = 120000;                                        // dollars per poi
 const PROP_PRICE = { car: 31000, lamp: 6500, tree: 2200 };
 
 const money = (n) => (n >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${Math.round(n / 1000)}K`);
-const SOURCE = { ramming: "Ramming", "friendly fire": "Friendly fire", "vent burst": "Vent bursts", collateral: "Hive collateral", fire: "Fire", other: "Other" };
+const SOURCE = { ramming: "Ramming", "friendly fire": "Friendly fire", plasma: "Plasma Bleed (fire)", coils: "Arc Coils", incend: "Incendiary Rounds (fire)", "vent burst": "Vent bursts", collateral: "Hive collateral", fire: "Fire", other: "Other" };
 export const sourceName = (k) => WEAPONS[k]?.name || SOURCE[k] || k;
 /** "contact brute" -> "Brute (contact)", "spitter bolt" -> "Spitter bolts", ... */
 export function hurtName(k) {

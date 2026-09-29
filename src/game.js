@@ -92,12 +92,13 @@ export function recompute(run) {
   const s = {
     maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
     rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
-    dodge: 0, ram: 0, capacity: 0,
+    dodge: 0, ram: 0, capacity: 0, energyIgnite: 0, energyArc: 0, ballisticIgnite: 0, pierce: 0,
   };
   for (const pk of run.perks) for (const [k, v] of Object.entries(pk.fx)) s[k] += v;
   for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
   for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
   s.dodge = Math.min(0.6, s.dodge);
+  s.energyIgnite = Math.min(0.6, s.energyIgnite); s.energyArc = Math.min(0.5, s.energyArc); s.ballisticIgnite = Math.min(0.45, s.ballisticIgnite); s.pierce = Math.min(0.6, s.pierce);
   run.mounts = assignMounts(run);
   run.stats = s;
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
@@ -673,15 +674,16 @@ export function update(run, dt, move) {
     }
     let hit = null;
     near(sh.x, sh.y, 20, (e) => {
-      if (hit || e.dead) return;
+      if (hit || e.dead || e === sh.through) return;   // (a round that punched through doesn't hit the same body again)
       if (e.d.flying && !sh.air && Math.abs((sh.h ?? 4) - altOf(e)) > 4) return;   // low rounds at ground targets pass under flyers, as drawn
       const dx = e.x - sh.x, dy = e.y - sh.y, r = e.d.r + 1.5;
       if (dx * dx + dy * dy < r * r) hit = e;
     });
     if (hit) {
       const sp = Math.hypot(sh.vx, sh.vy);
-      credit = sh.src || "autocannon"; hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30);
-      sh.life = 0;
+      credit = sh.src || "autocannon"; hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30); proc(run, hit, sh.dmg, "ballistic");
+      if (s.pierce && (sh.pierced || 0) < 3 && rand() < s.pierce) { sh.pierced = (sh.pierced || 0) + 1; sh.through = hit; }   // AP Rounds: it keeps going
+      else sh.life = 0;
       run.fx.push({ type: "impact", x: sh.x, y: sh.y - (sh.h ?? 4), t: 0.07, max: 0.07 });
       run.events.push({ type: "tink" });
       for (let i = 0; i < 3; i++) {
@@ -750,7 +752,7 @@ export function update(run, dt, move) {
     if (d < 6 || m.age > 3) {
       m.done = true;
       credit = m.src || "missiles";
-      near(m.tx, m.ty, m.aoe + 16, (e) => { if (Math.hypot(e.x - m.tx, e.y - m.ty) < m.aoe + e.d.r) hitEnemy(run, e, m.dmg, (e.x - m.tx) * 3, (e.y - m.ty) * 3); });
+      near(m.tx, m.ty, m.aoe + 16, (e) => { if (Math.hypot(e.x - m.tx, e.y - m.ty) < m.aoe + e.d.r) proc(run, e, m.dmg, "ballistic"), hitEnemy(run, e, m.dmg, (e.x - m.tx) * 3, (e.y - m.ty) * 3); });
       buildingsAround(run, m.tx, m.ty, m.aoe, m.dmg * BUILDING_DMG.ballistic * 0.6);
       run.fx.push({ type: "boom", x: m.tx, y: m.ty, r: 6, t: 0.35, max: 0.35 });
       run.fx.push({ type: "ring", x: m.tx, y: m.ty, r: m.aoe + 4, t: 0.22, max: 0.22, color: "#ffd27a" });
@@ -1065,7 +1067,7 @@ function discharge(run, w, aim, pl) {
     const start = pl?.start && !pl.start.dead ? pl.start : nearestEnemy(run, range);
     if (!start) return;
     const { hit, pts } = arcChain(run, start, def), m = mountPoint(run, run.weapons.indexOf(w));
-    hit.forEach((e, i) => { hitEnemy(run, e, dmg * def.falloff ** i, 0, 0); e.stunT = Math.max(e.stunT || 0, def.stun); });
+    hit.forEach((e, i) => { hitEnemy(run, e, dmg * def.falloff ** i, 0, 0); proc(run, e, dmg * def.falloff ** i, "energy"); e.stunT = Math.max(e.stunT || 0, def.stun); });
     for (const [x, y] of pts) for (let k = 0; k < 4; k++) {
       const a = run.rand() * Math.PI * 2, v = 30 + run.rand() * 50;
       run.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.25, max: 0.25, color: run.rand() < 0.5 ? "#e8fbff" : "#6fd6ff", size: 1, spark: true, energy: true });
@@ -1079,7 +1081,7 @@ function discharge(run, w, aim, pl) {
   if (def.kind === "nova") {
     near(p.x, p.y, range + 20, (e) => {
       const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-      if (d < range + e.d.r) hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock);
+      if (d < range + e.d.r) { hitEnemy(run, e, dmg, (dx / d) * def.knock, (dy / d) * def.knock); proc(run, e, dmg, "energy"); }
     });
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range, t: 0.4, max: 0.4, color: "#8fe3ff", thick: true });
     run.fx.push({ type: "ring", x: p.x, y: p.y, r: range * 0.6, t: 0.3, max: 0.3, color: "#dff8ff" });
@@ -1089,7 +1091,7 @@ function discharge(run, w, aim, pl) {
     return;
   }
   const bestA = aim ?? p.aim, ex = p.x + Math.cos(bestA) * range, ey = p.y + Math.sin(bestA) * range;
-  for (const e of beamHits(run, bestA, range, def.width)) hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60);
+  for (const e of beamHits(run, bestA, range, def.width)) { hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60); proc(run, e, dmg, "energy"); }
   // beams pierce cover, cutting into every building on the line
   const cut = new Set();
   traverse(p.x, p.y, ex, ey, (tx, ty) => { const id = tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS ? run.city.bid[ty * TCOLS + tx] : -1; if (id >= 0) cut.add(id); return false; });
@@ -1120,6 +1122,22 @@ function beamHits(run, a, range, width) {
     if (Math.abs(dx * cy - dy * cx) <= width / 2 + e.d.r) out.push(e);
   }
   return out;
+}
+
+/** Family procs from modules: energy hits may set the target on fire or arc to a neighbour (half damage, no further
+ *  procs); ballistic hits may set it on fire. Called after a weapon's own hit. */
+function proc(run, e, dmg, fam) {
+  const s = run.stats, rand = run.rand;
+  const ig = fam === "energy" ? s.energyIgnite : fam === "ballistic" ? s.ballisticIgnite : 0;
+  if (ig && !e.dead && rand() < ig) { e.burn = Math.max(e.burn || 0, 2.5); e.burnDps = Math.max(e.burnDps || 0, Math.max(3, dmg * 0.25)); e.burnSrc = fam === "energy" ? "plasma" : "incend"; }
+  if (fam === "energy" && s.energyArc && rand() < s.energyArc) {
+    let best = null, bd = 48;
+    for (const q of run.enemies) { if (q === e || q.dead) continue; const d = Math.hypot(q.x - e.x, q.y - e.y); if (d < bd) { bd = d; best = q; } }
+    if (best) {
+      const was = credit; credit = "coils"; hitEnemy(run, best, dmg * 0.5, 0, 0, true); credit = was;
+      run.fx.push({ type: "arc", pts: [[e.x, e.y - 4], [best.x, best.y - 4]], t: 0.16, max: 0.16 });
+    }
+  }
 }
 
 function hitEnemy(run, e, dmg, kx, ky, quiet = false) {

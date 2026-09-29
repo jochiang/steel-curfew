@@ -14,13 +14,13 @@ export const HARDPOINT = { E: "energy", B: "ballistic", M: "melee", U: "universa
 export const CHASSIS = {
   kestrel: {
     name: "Kestrel", cls: "Light", blurb: "Fast and fragile. Lives by staying out of reach.",
-    hp: 45, armor: 0, speed: 100, capacity: 40, radius: 7,
-    hardpoints: ["E", "E", "B", "U"], stomp: 0.3, fx: { dodge: 0.25 }, quirk: "25% of hits glance off",
-    mounts: [[-5, -1], [5, -1], [-6, -7], [6, -7]],   // hands, then shoulder pods
+    hp: 55, armor: 0, speed: 100, capacity: 50, radius: 7,   // 2026-09-29 balance: was 45 HP, 4 hardpoints, 40 t, 25% glance (weakest frame in every test)
+    hardpoints: ["E", "E", "B", "U", "U"], stomp: 0.3, fx: { dodge: 0.3 }, quirk: "30% of hits glance off",
+    mounts: [[-5, -1], [5, -1], [-6, -7], [6, -7], [0, -10]],   // hands, then shoulder pods, then the back
   },
   warden: {
     name: "Warden", cls: "Medium", blurb: "The all-rounder. Balanced armour, speed and loadout.",
-    hp: 60, armor: 0, speed: 80, capacity: 60, radius: 8,
+    hp: 70, armor: 1, speed: 80, capacity: 60, radius: 8,   // 2026-09-29 balance: was 60 HP, 0 armor (all the guns, none of the toughness)
     hardpoints: ["B", "B", "E", "M", "U", "U"], stomp: 0.5, fx: {}, quirk: "Two universal hardpoints",
     mounts: [[-8, -2], [8, -2], [-7, -11], [7, -11], [-3, -14], [3, -14]],   // hands, shoulders, back
   },
@@ -153,6 +153,12 @@ export const MODULES = {
   overdrive:{ name: "Overdrive Actuators",weight: 3, price: 22, fx: { ventSpeed: 0.4 },           desc: "+40% speed while venting" },
   heatdump: { name: "Heat Dump",          weight: 4, price: 26, fx: { ventBurst: 25 },            desc: "Venting scalds everything nearby (25 dmg)" },
   loops:    { name: "Isolated Coolant Loops", weight: 10, price: 35, fx: { isolatedLoops: 1 },   desc: "Ballistic and melee weapons stay online while venting", unique: true },
+  // family procs (user: "an item that causes a chance for energy damaged enemies to catch fire or spontaneously arc ...
+  // incendiary ballistic ammo or armor piercing"): they keep a build clearing between volleys; duplicates stack to a cap
+  plasma:   { name: "Plasma Bleed",       weight: 3, price: 22, fx: { energyIgnite: 0.25 },     desc: "Energy hits: 25% chance to set the target on fire" },
+  coils:    { name: "Arc Coils",          weight: 3, price: 24, fx: { energyArc: 0.2 },         desc: "Energy hits: 20% chance to arc to a nearby enemy for half damage" },
+  incend:   { name: "Incendiary Rounds",  weight: 2, price: 20, fx: { ballisticIgnite: 0.15 }, desc: "Ballistic hits: 15% chance to set the target on fire" },
+  apRounds: { name: "AP Rounds",          weight: 2, price: 20, fx: { pierce: 0.25 },           desc: "Rounds: 25% chance to punch through a target and keep going" },
 };
 
 export const ENEMIES = {
