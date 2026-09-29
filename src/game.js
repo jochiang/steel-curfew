@@ -93,6 +93,7 @@ export function recompute(run) {
     maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
     rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
     dodge: 0, ram: 0, capacity: 0, energyIgnite: 0, energyArc: 0, ballisticIgnite: 0, pierce: 0,
+    bonusSalvage: 0, discount: 0, freeReroll: 0, volleyBounty: 0,   // frame signatures (Kestrel, Warden, Tempest)
   };
   for (const pk of run.perks) for (const [k, v] of Object.entries(pk.fx)) s[k] += v;
   for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
@@ -638,7 +639,9 @@ export function update(run, dt, move) {
     const plans = cap.charge >= 1 ? energy.map((w) => [w, plan(run, w)]) : [];
     if (plans.length) cap.hold += dt;
     if (plans.some(([, pl]) => pl.ready)) {
+      run.volley = { first: true };   // the Tempest's volley bounty counts the kills of this discharge
       for (const [w, pl] of plans) discharge(run, w, pl.aim, pl);
+      run.volley = null;
       cap.vent = cap.ventMax = times.vent; cap.hold = 0;
       run.events.push({ type: "vent", dur: times.vent });
       run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
@@ -1159,6 +1162,8 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   }
   gainXp(run, e.d.salvage * (e.elite ? ELITE.salvage : 1));
   let n = e.d.salvage * (e.elite ? ELITE.salvage : 1);
+  if (run.stats.bonusSalvage && run.rand() < run.stats.bonusSalvage) n += 1;   // Kestrel: the scavenger's cut
+  if (run.volley && run.stats.volleyBounty) { if (run.volley.first) run.volley.first = false; else if (run.rand() < run.stats.volleyBounty) n += 1; }   // Tempest: volley bounty (a chance per extra kill)
   while (n > 0) {
     const v = n >= 5 ? 5 : 1; n -= v;
     run.pickups.push({ x: e.x + (run.rand() - 0.5) * 10, y: e.y + (run.rand() - 0.5) * 10, n: v, v: 0, pull: false });
@@ -1306,7 +1311,7 @@ export function choosePerk(run, i) {
 // ---------------------------------------------------------------- hangar / shop
 export const weaponPrice = (key, tier, wave) => Math.round(WEAPONS[key].price * TIER_PRICE[tier] * SHOP.priceWaveMul(wave));
 export const modulePrice = (key, wave) => Math.round(MODULES[key].price * SHOP.priceWaveMul(wave));
-export const rerollCost = (run) => SHOP.rerollBase + SHOP.rerollStep * run.shop.rerolls + run.wave;
+export const rerollCost = (run) => (run.stats.freeReroll && run.shop.rerolls === 0 ? 0 : SHOP.rerollBase + SHOP.rerollStep * run.shop.rerolls + run.wave);   // Warden: first reroll free
 
 export function rollOffers(run) {
   const kept = run.shop.offers.filter((o) => o.locked);
@@ -1319,11 +1324,11 @@ export function rollOffers(run) {
       const key = pick(run.rand, (run.allowed || Object.keys(WEAPONS)).map((k) => [k, 1]));
       const r = run.rand();
       const tier = r < 0.07 * Math.max(0, w - 2) ? 2 : r < 0.14 * w ? 1 : 0;
-      o = { kind: "weapon", key, tier, price: weaponPrice(key, tier, run.wave) };
+      o = { kind: "weapon", key, tier, price: Math.round(weaponPrice(key, tier, run.wave) * (1 - run.stats.discount)) };   // Warden: 10% off
     } else {
       const key = pick(run.rand, Object.keys(MODULES).map((k) => [k, 1]));
       if (MODULES[key].unique && run.modules.includes(key)) continue;
-      o = { kind: "module", key, tier: 0, price: modulePrice(key, run.wave) };
+      o = { kind: "module", key, tier: 0, price: Math.round(modulePrice(key, run.wave) * (1 - run.stats.discount)) };
     }
     if (out.some((x) => x.kind === o.kind && x.key === o.key && x.tier === o.tier)) continue;
     out.push({ ...o, locked: false, sold: false });

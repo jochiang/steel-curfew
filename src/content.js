@@ -15,13 +15,13 @@ export const CHASSIS = {
   kestrel: {
     name: "Kestrel", cls: "Light", blurb: "Fast and fragile. Lives by staying out of reach.",
     hp: 55, armor: 0, speed: 100, capacity: 50, radius: 7,   // 2026-09-29 balance: was 45 HP, 4 hardpoints, 40 t, 25% glance (weakest frame in every test)
-    hardpoints: ["E", "E", "B", "U", "U"], stomp: 0.3, fx: { dodge: 0.3 }, quirk: "30% of hits glance off",
+    hardpoints: ["E", "E", "B", "U", "U"], stomp: 0.3, fx: { dodge: 0.3, pickup: 18, bonusSalvage: 0.2 }, quirk: "30% of hits glance off. Scavenger: wide pickup, kills may drop extra salvage",
     mounts: [[-5, -1], [5, -1], [-6, -7], [6, -7], [0, -10]],   // hands, then shoulder pods, then the back
   },
   warden: {
     name: "Warden", cls: "Medium", blurb: "The all-rounder. Balanced armour, speed and loadout.",
     hp: 70, armor: 1, speed: 80, capacity: 60, radius: 8,   // 2026-09-29 balance: was 60 HP, 0 armor (all the guns, none of the toughness)
-    hardpoints: ["B", "B", "E", "M", "U", "U"], stomp: 0.5, fx: {}, quirk: "Two universal hardpoints",
+    hardpoints: ["B", "B", "E", "M", "U", "U"], stomp: 0.5, fx: { discount: 0.1, freeReroll: 1 }, quirk: "Quartermaster: 10% off in the shop, first reroll free",
     mounts: [[-8, -2], [8, -2], [-7, -11], [7, -11], [-3, -14], [3, -14]],   // hands, shoulders, back
   },
   bulwark: {
@@ -33,7 +33,7 @@ export const CHASSIS = {
   tempest: {
     name: "Tempest", cls: "Assault", blurb: "An energy platform built around its capacitor.",
     hp: 70, armor: 1, speed: 72, capacity: 75, radius: 9,
-    hardpoints: ["E", "E", "E", "B", "U"], stomp: 0.5, fx: { fillMul: -0.3 }, quirk: "Capacitor charges 30% faster",
+    hardpoints: ["E", "E", "E", "B", "U"], stomp: 0.5, fx: { fillMul: -0.3, volleyBounty: 0.25 }, quirk: "Capacitor charges 30% faster. Volley bounty: multi-kills may drop extra salvage",
     mounts: [[-8, -2], [8, -2], [-7, -9], [7, -9], [0, -14]],
   },
 };
