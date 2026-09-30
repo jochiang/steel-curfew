@@ -2,7 +2,7 @@ import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PER
 
 const waveName = (w) => (pastCurfew(w) ? `Past curfew +${pastCurfew(w)}` : `Wave ${w + 1}`);
 import {
-  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, fits, darkness, timeLabel,
+  blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, buyMerges, darkness, timeLabel,
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
 } from "./game.js";
 import { ui as sfx, sfxVolume, setSfxVolume } from "./audio.js";
@@ -179,7 +179,7 @@ export function renderHangar(run, onDeploy) {
     const def = o.kind === "weapon" ? WEAPONS[o.key] : MODULES[o.key];
     const why = blocked(run, o);
     const fam = o.kind === "weapon" ? def.family : "module";
-    const merge = o.kind === "weapon" && !why && !fits(run, def.family);
+    const merge = !why && buyMerges(run, o);
     return `
       <div class="offer fam-${fam}${o.sold ? " sold" : ""}${o.locked ? " locked" : ""}">
         <div class="offer-top"><span class="tag">${FAM[fam]}</span>

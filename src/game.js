@@ -1336,6 +1336,15 @@ export function rollOffers(run) {
   run.shop.offers = out;
 }
 
+/** Would buying this weapon offer upgrade an owned copy (no new hardpoint, no added tonnage)
+ *  instead of mounting? Only when mounting is impossible: hardpoints full or over tonnage. */
+export function buyMerges(run, o) {
+  if (o.kind !== "weapon") return false;
+  const d = WEAPONS[o.key];
+  if (fits(run, d.family) && run.load + d.weight <= capacityOf(run)) return false;
+  return run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3);
+}
+
 /** Why an offer can't be bought, or null */
 export function blocked(run, o) {
   if (o.sold) return "Sold";
@@ -1345,8 +1354,8 @@ export function blocked(run, o) {
     if (run.load + MODULES[o.key].weight > capacityOf(run)) return "Over tonnage";
     return null;
   }
+  if (buyMerges(run, o)) return null;
   if (!fits(run, WEAPONS[o.key].family)) {
-    if (run.weapons.some((w) => w.key === o.key && w.tier === o.tier && w.tier < 3)) return null;   // merges instead
     return canMount(run.chassis, WEAPONS[o.key].family) ? "Hardpoints full" : `No ${WEAPONS[o.key].family} hardpoint`;
   }
   if (run.load + WEAPONS[o.key].weight > capacityOf(run)) return "Over tonnage";
@@ -1358,7 +1367,7 @@ export function buy(run, i) {
   if (!o || blocked(run, o)) return false;
   run.salvage -= o.price; run.m.spent += o.price;
   if (o.kind === "module") run.modules.push(o.key);
-  else if (fits(run, WEAPONS[o.key].family)) addWeapon(run, o.key, o.tier);
+  else if (!buyMerges(run, o)) addWeapon(run, o.key, o.tier);
   else run.weapons.find((w) => w.key === o.key && w.tier === o.tier).tier++;
   o.sold = true; o.locked = false;
   recompute(run);
