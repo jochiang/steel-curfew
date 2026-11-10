@@ -751,7 +751,7 @@ export function createRenderer(canvas) {
       paintHeat(run, X, Y, t);
       const wetOn = lit && weather.wet > 0.02;
       if (wetOn) paintWetMask(run, X, Y, ox, oy, t, shown, inView);
-      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7, crt, wet: wetOn ? { map: wet, amount: weather.wet, gloss, flash: storm.flash, x: li - 1, y: ti - 1 } : null }); }
+      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7, crt, wet: wetOn ? { map: wet, light, ambient: tod.ambient.match(/\d+/g).map((v) => v / 255), amount: weather.wet, gloss, flash: storm.flash, x: li - 1, y: ti - 1 } : null }); }
       catch (e) { gfx.ok = false; console.error("shaders off:", e); }   // e.g. a browser that can't upload an OffscreenCanvas: Canvas2D from now on
     }
     glCanvas.style.display = viaGL ? "block" : "none";

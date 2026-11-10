@@ -41,7 +41,8 @@ void main() {
 const REFLECT = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D scene, wet;
+uniform sampler2D scene, wet, lightmap;
+uniform vec3 ambient;   // the light map's base colour: what's above it is light landing on the street
 uniform vec2 buf, world;   // buffer size; world position of the buffer's top-left pixel
 uniform float wetness, time, flash, gloss;   // gloss 1 = damp street; higher = longer, stronger, more mirror-like
 void main() {
@@ -64,6 +65,18 @@ void main() {
       float src = max((1.0 - wq.a) * smoothstep(0.3, 0.8, l), smoothstep(0.85, 1.0, l)) * (1.0 - wq.g);
       acc += s * src * (1.0 - fi / 13.0);
     }
+    // light landing on wet ground glares back: the mech's searchlight and light package, lamps, flashes and
+    // fire put a sheen on the street, smeared toward the camera and broken into glinting ripple lines
+    vec3 lit = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i);
+      lit += max(texture(lightmap, (px + vec2(0.0, fi * 3.0)) / buf).rgb - ambient, 0.0) * (0.4 - fi * 0.07);
+    }
+    float wx = world.x + px.x;
+    float rip = sin(wy * 2.3 + sin(wx * 0.31 + time * 1.3) * 2.2 + time * 2.4) * 0.5 + 0.5;
+    float puddle = smoothstep(0.55, 0.9, wm.r);                     // puddles ripple; damp paving just has a soft, even sheen
+    float glint = mix(0.45 + 0.12 * rip, mix(0.2, 1.6, smoothstep(0.45, 0.95, rip)), puddle);
+    acc += lit * glint * 0.65;
     c = c * (1.0 - 0.18 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * gloss * m + (flash * m) * vec3(0.16, 0.18, 0.26);
   }
   o = vec4(c, 1.0);
@@ -148,7 +161,7 @@ export function createCompositor(canvas) {
     const quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    P = { bright: compile(BRIGHT), blur: compile(BLUR), comp: compile(COMPOSITE), reflect: compile(REFLECT), scene: texture(gl.NEAREST), heat: texture(gl.LINEAR), wet: texture(gl.NEAREST), rt: null, mid: null, bw: 0, bh: 0 };
+    P = { bright: compile(BRIGHT), blur: compile(BLUR), comp: compile(COMPOSITE), reflect: compile(REFLECT), scene: texture(gl.NEAREST), heat: texture(gl.LINEAR), wet: texture(gl.NEAREST), light: texture(gl.NEAREST), rt: null, mid: null, bw: 0, bh: 0 };
   }
   function draw(prog, fb, w, h) { gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.viewport(0, 0, w, h); gl.useProgram(prog); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); }
 
@@ -157,7 +170,7 @@ export function createCompositor(canvas) {
   canvas.addEventListener("webglcontextrestored", () => { try { init(); C.ok = true; } catch (e) { console.error(e); } });
 
   /** buf/heat: canvases at game resolution; view: { S, fx, fy }; waves: [[x, y, radius, strength]...];
-   *  opts: { thresh, bloom, haze, crt, wet: { map (canvas at game resolution), amount 0..1, flash, x, y (world position of the buffer's corner) } | null } */
+   *  opts: { thresh, bloom, haze, crt, wet: { map (canvas at game resolution), light (the light map canvas), ambient [r, g, b] 0..1, amount 0..1, gloss, flash, x, y (world position of the buffer's corner) } | null } */
   C.render = (buf, heat, view, t, waves, opts) => {
     if (!C.ok) return false;
     const W = canvas.width, H = canvas.height, bw = Math.max(1, buf.width >> 1), bh = Math.max(1, buf.height >> 1);
@@ -175,7 +188,9 @@ export function createCompositor(canvas) {
       const r = P.reflect.u;
       gl.useProgram(P.reflect.prog); gl.uniform1i(r.scene, 0); gl.uniform1i(r.wet, 3);
       gl.uniform2f(r.buf, buf.width, buf.height); gl.uniform2f(r.world, wet.x, wet.y);
-      gl.uniform1f(r.wetness, wet.amount); gl.uniform1f(r.time, t); gl.uniform1f(r.flash, wet.flash || 0); gl.uniform1f(r.gloss, wet.gloss || 1);
+      gl.uniform1f(r.wetness, wet.amount); gl.uniform1f(r.time, t); gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, P.light); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, wet.light);
+      gl.uniform1i(r.lightmap, 4); gl.uniform3f(r.ambient, wet.ambient[0], wet.ambient[1], wet.ambient[2]);
+      gl.uniform1f(r.flash, wet.flash || 0); gl.uniform1f(r.gloss, wet.gloss || 1);
       draw(P.reflect.prog, P.mid.fb, buf.width, buf.height);
       scene = P.mid.t;
     }
