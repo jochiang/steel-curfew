@@ -47,7 +47,7 @@ uniform float wetness, time, flash;
 void main() {
   vec3 c = texture(scene, uv).rgb;
   vec4 wm = texture(wet, uv);
-  float m = wm.r * wm.a * wetness;
+  float m = wm.r * wm.a * wetness * (1.0 - wm.g);   // green marks a danger telegraph: kept crisp
   if (m > 0.004) {
     vec2 px = floor(uv * buf) + 0.5;                    // y up
     float wy = world.y + buf.y - px.y;
@@ -59,8 +59,9 @@ void main() {
       vec3 s = texture(scene, q).rgb;
       float l = max(s.r, max(s.g, s.b));
       // what reflects: things that stand on the street (cut out of the wet map: no alpha there), and anything
-      // very bright (flashes, fire, tracers). Not the street's own paint, however well lit.
-      float src = max((1.0 - texture(wet, q).a) * smoothstep(0.3, 0.8, l), smoothstep(0.85, 1.0, l));
+      // very bright (flashes, fire, tracers). Not the street's own paint, however well lit, and not telegraphs (green).
+      vec4 wq = texture(wet, q);
+      float src = max((1.0 - wq.a) * smoothstep(0.3, 0.8, l), smoothstep(0.85, 1.0, l)) * (1.0 - wq.g);
       acc += s * src * (1.0 - fi / 13.0);
     }
     c = c * (1.0 - 0.18 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * m + (flash * m) * vec3(0.16, 0.18, 0.26);

@@ -103,7 +103,7 @@ export function createRenderer(canvas) {
   const enemies = {};
   for (const k of Object.keys(ENEMIES)) {
     const frames = enemyFrames(k);
-    enemies[k] = { frames, elite: enemyFrames(k, false, true), flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")), glow: enemyFrames(k, true).map((f) => flash(f)) };
+    enemies[k] = { frames, elite: enemyFrames(k, false, true), flash: frames.map((f) => flash(f)), xray: frames.map((f) => flash(f, "#ff7a5c")), glow: enemyFrames(k, true).map((f) => flash(f)), mask: frames.map((f) => flash(f, "#00ff00")) };
   }
   const shadows = new Map();
   const shadow = (w) => { if (!shadows.has(w)) shadows.set(w, shadowSprite(w)); return shadows.get(w); };
@@ -553,16 +553,7 @@ export function createRenderer(canvas) {
       }
       if (Math.random() < dt * 10 * fuel) flame(pl.x + (Math.random() - 0.5) * pl.r, pl.y + (Math.random() - 0.5) * pl.r * 0.5);
     }
-    // the Crusher's lane: a rectangle on the street that fills toward the far end as the furnace charges
-    for (const e of run.enemies) {
-      if (e.beamAim == null) continue;
-      const B = e.d.beam, k = 1 - e.beamWarn / B.warn, o = beamOrigin(e), blink = Math.floor(t * (6 + k * 20)) % 2;
-      g.save(); g.translate(X(o.x), Y(o.y)); g.rotate(e.beamAim);
-      g.globalAlpha = 0.16 + 0.12 * blink; g.fillStyle = C.danger; g.fillRect(0, -B.width / 2, B.len * k, B.width);
-      g.globalAlpha = 1; g.fillStyle = blink ? "#ff8a70" : C.danger;
-      g.fillRect(0, -B.width / 2, B.len, 1); g.fillRect(0, B.width / 2 - 1, B.len, 1); g.fillRect(B.len - 1, -B.width / 2, 1, B.width);
-      g.restore();
-    }
+    telegraphs(g, run, X, Y, t, null);
     for (const f of run.fx) {   // the beam itself: white core, orange, a deep red rim, thinning as it fades
       if (f.type !== "furnaceBeam") continue;
       const k = f.t / f.max;
@@ -572,25 +563,6 @@ export function createRenderer(canvas) {
       }
       g.restore();
     }
-    // spawn telegraphs: a reticle that closes in
-    for (const m of run.marks) {
-      const k = 1 - m.t / m.max, big = m.type === "crusher" || m.type === "hive", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
-      const x = X(m.x), y = Y(m.y), blink = Math.floor(k * 12 * (1 + k)) % 2;
-      g.fillStyle = blink ? "#ff8a70" : C.danger;
-      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        g.fillRect(x + dx * s - (dx > 0 ? 2 : 0), y + dy * s, 3, 1);
-        g.fillRect(x + dx * s, y + dy * s - (dy > 0 ? 2 : 0), 1, 3);
-      }
-      if (blink) g.fillRect(x, y, 1, 1);
-    }
-    // incoming shells: a ring where each will land, tightening as it drops
-    for (const sh of run.shells) {
-      const k = sh.t / sh.dur, x = X(sh.tx), y = Y(sh.ty);
-      g.fillStyle = Math.floor(t * (6 + k * 18)) % 2 ? "#ff8a70" : C.danger;
-      circlePx(g, x, y, sh.r);
-      circlePx(g, x, y, Math.max(1, sh.r * (1 - k)));
-    }
-
     // x-ray: units hidden behind a building are drawn again as faint silhouettes
     for (const e of run.enemies) if (!e.d.flying && !e.d.hive && occluded(city, e.x, e.y + e.d.r)) drawEnemy(e, t, X, Y, true);
     if (occluded(city, p.x, p.y + 8)) { const xr = mechSet(run.chassisKey).xray, [mx, my] = mechAt(xr, X, Y, p); g.globalAlpha = 0.6; g.drawImage(xr, mx, my); g.globalAlpha = 1; }
@@ -1346,6 +1318,42 @@ export function createRenderer(canvas) {
     }
   }
 
+  // Danger telegraphs: the Crusher's lane, spawn reticles, shell rings. Drawn into the scene, and (mask: a flat
+  // colour) into the wet mask, so the reflection shader leaves them alone: red streaks under every marker
+  // muddied where the hit would land (user: "muddies the location of those hits").
+  function telegraphs(c, run, X, Y, t, mask) {
+  // the Crusher's lane: a rectangle on the street that fills toward the far end as the furnace charges
+  for (const e of run.enemies) {
+    if (e.beamAim == null) continue;
+    const B = e.d.beam, k = 1 - e.beamWarn / B.warn, o = beamOrigin(e), blink = Math.floor(t * (6 + k * 20)) % 2;
+    c.save(); c.translate(X(o.x), Y(o.y)); c.rotate(e.beamAim);
+    c.globalAlpha = mask ? 1 : 0.16 + 0.12 * blink; c.fillStyle = mask || C.danger; c.fillRect(0, -B.width / 2, B.len * k, B.width);
+    c.globalAlpha = 1; c.fillStyle = mask || (blink ? "#ff8a70" : C.danger);
+    c.fillRect(0, -B.width / 2, B.len, 1); c.fillRect(0, B.width / 2 - 1, B.len, 1); c.fillRect(B.len - 1, -B.width / 2, 1, B.width);
+    c.restore();
+  }
+  // spawn telegraphs: a reticle that closes in
+  for (const m of run.marks) {
+    const k = 1 - m.t / m.max, big = m.type === "crusher" || m.type === "hive", s = Math.round((big ? 14 : 7) * (1.6 - k * 0.8));
+    const x = X(m.x), y = Y(m.y), blink = Math.floor(k * 12 * (1 + k)) % 2;
+    c.fillStyle = mask || (blink ? "#ff8a70" : C.danger);
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      c.fillRect(x + dx * s - (dx > 0 ? 2 : 0), y + dy * s, 3, 1);
+      c.fillRect(x + dx * s, y + dy * s - (dy > 0 ? 2 : 0), 1, 3);
+    }
+    if (blink || mask) c.fillRect(x, y, 1, 1);
+  }
+  // incoming shells: a ring where each will land, tightening as it drops
+  for (const sh of run.shells) {
+    const k = sh.t / sh.dur, x = X(sh.tx), y = Y(sh.ty);
+    c.fillStyle = mask || (Math.floor(t * (6 + k * 18)) % 2 ? "#ff8a70" : C.danger);
+    circlePx(c, x, y, sh.r);
+    circlePx(c, x, y, Math.max(1, sh.r * (1 - k)));
+  }
+  if (mask) for (const b of run.bolts) c.fillRect(X(b.x) - 3, Y(b.y - BOLT_H) - 3, 7, 7);   // enemy shots count too: no red trails under them
+
+}
+
   // the wet mask: the puddle map as the camera sees it, minus everything standing on the street
   function paintWetMask(run, X, Y, ox, oy, t, shown, inView) {
     const p = run.player, city = run.city;
@@ -1355,13 +1363,15 @@ export function createRenderer(canvas) {
     wg.globalCompositeOperation = "destination-out";
     for (const [, spr, bx, by] of shown) wg.drawImage(spr, bx, by);
     for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) drawProp(pr, X, Y, wg);
-    for (const e of run.enemies) {
-      if (e.d.hive || !inView(e.x - 24, e.y - 40, e.x + 24, e.y + 24)) continue;
-      const fr = enemies[e.type].frames, n = fr.length, fi = n > 1 ? Math.floor(t * (e.fuse ? 22 : e.type === "skitter" || e.type === "wasp" ? 12 : 4) + e.ph * 10) % n : 0, spr = fr[fi];
-      wg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) - (e.d.flying ? altOf(e) : 0) - 1);
-    }
     composeMech(wg, mechSet(run.chassisKey).cold, p, X, Y, p.moving ? Math.floor(t * 9) % 4 : 0, null);
     wg.fillStyle = "#000"; wg.fillRect(X(p.x) - 10, Y(p.y) + 12, 21, 4);   // the capacitor bar
+    wg.globalCompositeOperation = "lighter";   // green = danger (telegraphs, enemies, their shots): never reflected, never reflected onto
+    for (const e of run.enemies) {
+      if (e.d.hive || !inView(e.x - 24, e.y - 40, e.x + 24, e.y + 24)) continue;
+      const fr = enemies[e.type].mask, n = fr.length, fi = n > 1 ? Math.floor(t * (e.fuse ? 22 : e.type === "skitter" || e.type === "wasp" ? 12 : 4) + e.ph * 10) % n : 0, spr = fr[fi];
+      wg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) - (e.d.flying ? altOf(e) : 0) - 1);
+    }
+    telegraphs(wg, run, X, Y, t, "#00ff00");
     wg.globalCompositeOperation = "source-over";
   }
 
