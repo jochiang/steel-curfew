@@ -76,7 +76,7 @@ function play(chassis, start, seed) {
       hits: run.m.hits - m0.hits, earned: run.m.earned - m0.earned, level: run.level, levels: run.level - lvl0,
       weaponDps: run.weapons.reduce((t, x) => t + weaponDmg(run, x), 0),
       bySrc: Object.fromEntries(Object.entries(run.m.bySrc).map(([k, v]) => [k, v - (m0.bySrc[k] || 0)])),
-      boss: w === WAVES.length - 1 ? { type: run.m.bossType, ttk: run.m.bossKillT != null ? run.m.bossKillT - run.m.bossSpawnT : null, hp: run.m.bossHp } : null,
+      boss: WAVES[w].boss ? { type: run.m.bossType, ttk: run.m.bossKillT != null ? run.m.bossKillT - run.m.bossSpawnT : null, hp: run.m.bossHp } : null,
     };
     if (run.phase === "won") { rows.push(row); break; }
     const s0 = run.salvage;
@@ -108,31 +108,32 @@ for (let w = 1; w <= WAVES.length; w++) {
   console.log(`  ${w}   ${f0(mean(r.map((x) => x.earned)))}  ${f0(mean(r.map((x) => x.spent || 0)))}  ${f0(mean(r.map((x) => (x.salvageAtHangar || 0) - (x.spent || 0))))}  | ${f1(mean(r.map((x) => x.dps)))}   ${f1(mean(r.map((x) => x.pressure)))}    ${pct(mean(r.map((x) => Math.min(1, x.killRatio))))}  |  ${f0(mean(r.map((x) => x.taken)))}      ${f0(mean(r.map((x) => x.pool)))}       ${pct(mean(r.map((x) => (x.survived ? 1 : 0))))}   |  ${mean(r.map((x) => x.level)).toFixed(1)}`);
 }
 
-console.log("\nSURVIVAL by frame x family (share of runs that would survive each wave; 'run' = all five)");
-console.log("frame     family     w1   w2   w3   w4   w5   run   | wave-5 DPS  boss TTK (killed%)");
+console.log("\nSURVIVAL by frame x family (share of runs that would survive each wave; 'run' = every wave)");
+const ALL = WAVES.map((_, i) => i + 1), BOSS_WAVES = ALL.filter((w) => WAVES[w - 1].boss);
+console.log("frame     family    " + ALL.map((w) => `w${w}`.padStart(4)).join(" ") + "   run   | last-wave DPS  bosses killed");
 for (const ck of Object.keys(CHASSIS)) for (const fam of ["ballistic", "energy", "melee"]) {
   const rs = results.filter((x) => x.chassis === ck && x.fam === fam);
   if (!rs.length) continue;
-  const surv = [1, 2, 3, 4, 5].map((w) => mean(rs.map((x) => (x.rows[w - 1]?.survived ? 1 : 0))));
+  const surv = ALL.map((w) => mean(rs.map((x) => (x.rows[w - 1]?.survived ? 1 : 0))));
   const all = mean(rs.map((x) => (x.rows.every((r) => r.survived) ? 1 : 0)));
-  const b = rs.map((x) => x.rows[4]?.boss).filter(Boolean), killed = b.filter((x) => x.ttk != null);
-  console.log(`${ck.padEnd(9)} ${fam.padEnd(9)} ${surv.map(pct).join(" ")}  ${pct(all)}  |  ${f1(mean(rs.map((x) => x.rows[4]?.dps || 0)))}    ${killed.length ? `${mean(killed.map((x) => x.ttk)).toFixed(0)}s` : "  -"} (${pct(killed.length / (b.length || 1))})`);
+  const b = rs.flatMap((x) => x.rows.map((r) => r.boss)).filter(Boolean), killed = b.filter((x) => x.ttk != null);
+  console.log(`${ck.padEnd(9)} ${fam.padEnd(9)} ${surv.map(pct).join(" ")}  ${pct(all)}  |  ${f1(mean(rs.map((x) => x.rows[WAVES.length - 1]?.dps || 0)))}    ${pct(killed.length / (b.length || 1))}`);
 }
 
 console.log("\nBOSSES");
-for (const type of ["crusher", "siege"]) {
-  const b = results.map((x) => x.rows[4]?.boss).filter((x) => x && x.type === type), killed = b.filter((x) => x.ttk != null);
-  console.log(`${type.padEnd(8)} fights ${b.length}  killed ${pct(killed.length / (b.length || 1))}  mean TTK ${killed.length ? mean(killed.map((x) => x.ttk)).toFixed(1) + "s" : "-"}  (wave 5 lasts ${WAVES[4].duration}s, boss arrives at ~3s, HP ${Math.round(mean(b.map((x) => x.hp)))})`);
+for (const bw of BOSS_WAVES) for (const type of WAVES[bw - 1].boss) {
+  const b = results.map((x) => x.rows[bw - 1]?.boss).filter((x) => x && x.type === type), killed = b.filter((x) => x.ttk != null);
+  if (b.length) console.log(`wave ${String(bw).padStart(2)} ${type.padEnd(8)} fights ${String(b.length).padStart(3)}  killed ${pct(killed.length / b.length)}  mean TTK ${killed.length ? mean(killed.map((x) => x.ttk)).toFixed(1) + "s" : "-"}  (wave lasts ${WAVES[bw - 1].duration}s, HP ${Math.round(mean(b.map((x) => x.hp)))})`);
 }
 
 console.log("\nINCOMING DAMAGE by source (share of damage taken, per wave)");
 const srcs = [...new Set(results.flatMap((x) => x.rows.flatMap((r) => Object.keys(r.bySrc))))];
 const tot = (w) => mean(results.map((x) => Object.values(x.rows[w - 1]?.bySrc || {}).reduce((a, b) => a + b, 0)));
-console.log("source".padEnd(18) + [1, 2, 3, 4, 5].map((w) => `   w${w}`).join(""));
-for (const s of srcs.sort()) console.log(s.padEnd(18) + [1, 2, 3, 4, 5].map((w) => pct(mean(results.map((x) => x.rows[w - 1]?.bySrc[s] || 0)) / (tot(w) || 1)).padStart(6)).join(""));
+console.log("source".padEnd(18) + ALL.map((w) => `w${w}`.padStart(6)).join(""));
+for (const s of srcs.sort()) console.log(s.padEnd(18) + ALL.map((w) => pct(mean(results.map((x) => x.rows[w - 1]?.bySrc[s] || 0)) / (tot(w) || 1)).padStart(6)).join(""));
 
 const deaths = results.flatMap((x) => x.rows.filter((r) => !r.survived).map((r) => r.wave));
-console.log(`\nfirst wave a player would die on: ${[1, 2, 3, 4, 5].map((w) => `w${w} ${deaths.filter((d) => d === w).length}`).join("  ")}`);
+console.log(`\nfirst wave a player would die on: ${ALL.map((w) => `w${w} ${deaths.filter((d) => d === w).length}`).join("  ")}`);
 const sample = results.find((x) => x.chassis === "warden" && x.fam === "ballistic");
 if (sample) console.log(`\nsample Warden/ballistic build by wave 4 hangar: ${sample.rows[3]?.loadout}`);
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(results));

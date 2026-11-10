@@ -1,7 +1,7 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
-  waveDef, pastCurfew, FLY_ALT,
+  waveDef, pastCurfew, FLY_ALT, DISTRICT_WAVES, DISTRICTS, districtOf, opensDistrict,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -44,9 +44,9 @@ export function darkness(run) {
   if (run.tod === "day") return 0;
   if (run.tod === "dusk") return 0.55;
   if (run.tod === "night") return 1;
-  const last = DUSK_KEYS.length - 1, w = Math.min(run.wave, last);
+  const last = DUSK_KEYS.length - 1, w = pastCurfew(run.wave) ? last : run.wave % DISTRICT_WAVES;   // every district has its own day
   if (w >= last) return 1;
-  const f = Math.min(1, run.waveTime / WAVES[w].duration);
+  const f = Math.min(1, run.waveTime / WAVES[run.wave].duration);
   return DUSK_KEYS[w] + (DUSK_KEYS[w + 1] - DUSK_KEYS[w]) * f;
 }
 // Rain comes in with the dark: none by day, starting at twilight, pouring at night (and past curfew)
@@ -325,7 +325,8 @@ export function update(run, dt, move) {
   if (wave.boss && !run.bossSpawned && run.waveTime > 3) {
     run.bossSpawned = true;
     const types = Array.isArray(wave.boss) ? wave.boss : [wave.boss];
-    const shift = Math.floor(pastCurfew(run.wave) / 3);   // past curfew the boss alternates with wave 5's
+    const k = pastCurfew(run.wave);   // a different boss in each district, and past curfew they keep rotating
+    const shift = k ? DISTRICTS.length - 1 + Math.floor(k / 3) : districtOf(run.wave);
     for (let i = 0; i < (wave.bossCount || 1); i++) {
       const type = types[mod(run.seed + shift + i, types.length)];   // seeds can be negative (older saves): % alone gives -1
       const b = type === "hive" ? hiveSite(run) : null;
@@ -342,7 +343,7 @@ export function update(run, dt, move) {
     const d = ENEMIES[m.type], elite = !d.boss && !m.noElite && rand() < ELITE.chance(run.wave);
     const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1);
     run.m.hpSpawned += hp;
-    if (d.boss) { run.m.bossSpawnT = run.time; run.m.bossType = m.type; run.m.bossHp = hp; }
+    if (d.boss) { run.m.bossSpawnT = run.time; run.m.bossKillT = null; run.m.bossType = m.type; run.m.bossHp = hp; }   // each district's boss is its own fight
     if (d.hive) { const b = run.city.buildings[m.bid]; b.hiveBank = b.hp = HIVE_BANK; b.hiveFrac = 1; }
     run.enemies.push({
       type: m.type, d: d.hive ? { ...d, r: Math.min(run.city.buildings[m.bid].w, run.city.buildings[m.bid].h) * TILE * 0.5 } : d, bid: m.bid,
@@ -1275,7 +1276,17 @@ export function stayOut(run) {
 export function nextWave(run) {
   if (run.phase !== "hangar" || (run.wave >= WAVES.length - 1 && !run.endless)) return;   // a second deploy (double tap, bot timer) is a no-op
   run.wave++;
+  if (opensDistrict(run.wave)) enterDistrict(run);
   startWave(run);
+}
+
+/** The next district: a fresh city (the old one stays as you left it, on the bill). The build carries over. */
+function enterDistrict(run) {
+  run.city = generateCity((run.seed + 7919 * districtOf(run.wave)) >>> 0);
+  run.field = makeField(false); run.heavyField = makeField(true);
+  run.m.cityHp += run.city.buildings.reduce((t, b) => t + b.maxHp, 0);
+  attachLedger(run);
+  run.arriving = true;   // the page may play the drop again (main.js); sims ignore it
 }
 
 // ---------------------------------------------------------------- pilot level-ups
@@ -1323,7 +1334,7 @@ export function rollOffers(run) {
     if (run.rand() < 0.5) {
       const key = pick(run.rand, (run.allowed || Object.keys(WEAPONS)).map((k) => [k, 1]));
       const r = run.rand();
-      const tier = r < 0.07 * Math.max(0, w - 2) ? 2 : r < 0.14 * w ? 1 : 0;
+      const tier = r < Math.min(0.3, 0.07 * Math.max(0, w - 2)) ? 2 : r < Math.min(0.7, 0.14 * w) ? 1 : 0;   // capped: tier I stays on offer late, for merging
       o = { kind: "weapon", key, tier, price: Math.round(weaponPrice(key, tier, run.wave) * (1 - run.stats.discount)) };   // Warden: 10% off
     } else {
       const key = pick(run.rand, Object.keys(MODULES).map((k) => [k, 1]));

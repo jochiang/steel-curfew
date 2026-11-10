@@ -1,6 +1,8 @@
-import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul, waveDef, pastCurfew } from "./content.js";
+import { WEAPONS, MODULES, WAVES, TIER_NAMES, TARGETING, CHASSIS, HARDPOINT, PERKS, XP, armorMul, waveDef, pastCurfew, DISTRICTS, districtOf, opensDistrict } from "./content.js";
 
 const waveName = (w) => (pastCurfew(w) ? `Past curfew +${pastCurfew(w)}` : `Wave ${w + 1}`);
+const districtName = (w) => DISTRICTS[districtOf(w)].name;
+const districtLine = (w) => `District ${districtOf(w) + 1} of ${DISTRICTS.length}: ${districtName(w)}`;
 import {
   blocked, buy, reroll, rerollCost, combine, combinable, sell, sellValue, weaponDmg, speedOf, capTimes, canMount, buyMerges, darkness, timeLabel,
   choosePerk, rerollPerks, perkRerollCost, capacityOf,
@@ -222,7 +224,7 @@ export function renderHangar(run, onDeploy) {
   el.innerHTML = `
     <div class="panel hangar-panel">
       <header>
-        <div><h2>Hangar</h2><p class="sub">${waveName(run.wave)} survived · next: ${run.endless ? waveName(run.wave + 1) : `wave ${next} of ${WAVES.length}`}</p>
+        <div><h2>Hangar</h2><p class="sub">${waveName(run.wave)} survived · next: ${run.endless ? waveName(run.wave + 1) : opensDistrict(run.wave + 1) ? districtLine(run.wave + 1) : `wave ${next} of ${WAVES.length}`}</p>
           ${billSoFar(run) ? `<p class="sub bill">${esc(billSoFar(run))}</p>` : ""}
           ${(run.unlocks || []).filter((u) => !u.seen).map((u) => `<p class="unlock">Unlocked: <b>${esc(u.name)}</b>${u.kind === "weapons" ? " · now in the market" : ""}</p>`).join("")}</div>
         <div class="purse">◆ <b>${run.salvage}</b></div>
@@ -254,7 +256,7 @@ export function renderHangar(run, onDeploy) {
           </dl>
         </div>
       </div>
-      <footer><button class="primary" data-deploy>Deploy · ${run.endless ? waveName(run.wave + 1).toLowerCase() : `wave ${next}`}</button></footer>
+      <footer><button class="primary" data-deploy>Deploy · ${run.endless ? waveName(run.wave + 1).toLowerCase() : opensDistrict(run.wave + 1) ? districtName(run.wave + 1) : `wave ${next}`}</button></footer>
     </div>`;
 
   el.onclick = (e) => {
@@ -411,8 +413,8 @@ export function updateHud(run) {
   set("wave", k ? `CURFEW +${k}` : `WAVE ${run.wave + 1}/${WAVES.length}`, (v) => (hud.wave.textContent = v));
   const left = Math.max(0, Math.ceil(waveDef(run.wave).duration - run.waveTime));
   set("timer", left, (v) => { hud.timer.textContent = v; hud.timer.classList.toggle("low", v <= 5); });
-  const banner = run.clearing > 0 ? (run.wave === WAVES.length - 1 && !run.endless ? "City held" : "Wave cleared")
-    : run.waveTime < 1.6 && !(run.intro && !run.intro.playing) ? `${waveName(run.wave)}${k || darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}` : "";
+  const banner = run.clearing > 0 ? (run.wave === WAVES.length - 1 && !run.endless ? "City held" : opensDistrict(run.wave + 1) ? `${districtName(run.wave)} held` : "Wave cleared")
+    : run.waveTime < 1.6 && !(run.intro && !run.intro.playing) ? (opensDistrict(run.wave) || run.wave === 0 ? `${districtName(run.wave)} · ${waveName(run.wave)}` : `${waveName(run.wave)}${k || darkness(run) < 0.15 ? "" : ` · ${timeLabel(darkness(run))}`}`) : "";
   set("banner", banner, (v) => { if (v) hud.banner.textContent = v; hud.banner.classList.toggle("show", !!v); hud.banner.classList.toggle("clear", run.clearing > 0); });
   const boss = run.enemies.find((e) => e.d.boss);
   set("boss", !!boss, (v) => (hud.boss.hidden = !v));

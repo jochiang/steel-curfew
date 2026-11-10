@@ -186,15 +186,32 @@ export const ENEMIES = {
              beam: { every: 7.5, warn: 1.15, len: 240, width: 22, dmg: 30, building: 350, enemy: 40 } },   // furnace beam down a telegraphed lane
 };
 
+// A run is three districts of five waves. Each district is a fresh city with its own day-to-night arc and a boss
+// in the dark; the mech and its build carry over (user, 2026-11-10: "we need a longer game" -> three districts,
+// about 15 minutes). District 1 is the original five waves, unchanged.
+export const DISTRICT_WAVES = 5;
+export const DISTRICTS = [{ name: "Harbor Row" }, { name: "Midtown" }, { name: "The Spire" }];
 // Wave table. pool: [type, weight]
-export const WAVES = [
+const BASE = [
   { duration: 20, interval: 1.5, group: 3, pool: [["drone", 1]] },
   { duration: 25, interval: 1.35, group: 4, pool: [["drone", 3], ["skitter", 1], ["wasp", 1]] },
   { duration: 30, interval: 1.7, group: 4, pool: [["drone", 6], ["skitter", 2], ["brute", 1], ["sapper", 1]] },
   { duration: 35, interval: 1.4, group: 4, pool: [["drone", 5], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["wasp", 1]] },
   { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege", "gunship", "hive"] },
 ];
-// Past curfew (endless, optional after the wave-5 boss): each wave past the table is the last one,
+// Later districts: the full roster is out from the first wave (pools run two waves ahead), waves last a little
+// longer and spawn a little faster. Most of the climb comes from waveHpMul / waveDmgMul, not from enemy counts
+// (phones, and the 260 cap). `ease` thins the first waves of a district: a breather after the boss.
+export const LATER = { duration: 5, spawns: 0.12, ease: [1.5, 1.25, 1.1, 1, 1] };
+export const WAVES = DISTRICTS.flatMap((_, d) => BASE.map((b, i) => (d === 0 ? b : {
+  ...b, duration: b.duration + LATER.duration * d,
+  interval: +((b.interval * LATER.ease[i]) / (1 + LATER.spawns * d)).toFixed(2),
+  pool: BASE[Math.min(BASE.length - 1, i + 2)].pool,
+})));
+export const districtOf = (w) => Math.min(DISTRICTS.length - 1, Math.floor(w / DISTRICT_WAVES));   // w is 0-based
+/** Does wave w open a new district (a fresh city)? Never past curfew: the last district is where you stay out. */
+export const opensDistrict = (w) => w > 0 && w < WAVES.length && w % DISTRICT_WAVES === 0;
+// Past curfew (endless, optional after the last boss): each wave past the table is the last one,
 // with enemy HP x1.2 and spawns x1.1 compounding, and a boss every 3rd wave (both bosses from +9).
 export const CURFEW = { hp: 1.2, spawns: 1.1, bossEvery: 3, twoBossesFrom: 9 };
 export const pastCurfew = (w) => Math.max(0, w - WAVES.length + 1);   // 0 during the normal waves, then 1, 2, ...
@@ -204,7 +221,7 @@ export function waveDef(w) {
   const last = WAVES[WAVES.length - 1], bossWave = k % CURFEW.bossEvery === 0;
   return {
     ...last, interval: last.interval / CURFEW.spawns ** k,
-    boss: bossWave ? last.boss : null,   // alternates with the wave-5 boss (see the spawn in game.js)
+    boss: bossWave ? last.boss : null,   // a different one from the last boss (see the spawn in game.js)
     bossCount: bossWave && k >= CURFEW.twoBossesFrom ? 2 : 1,
   };
 }
@@ -213,7 +230,8 @@ export const waveHpMul = (w) => (pastCurfew(w) ? (1 + 0.25 * (WAVES.length - 1))
 export const ELITE = { chance: (w) => (w >= 1 ? Math.min(0.25, 0.02 + 0.012 * w) : 0), hp: 3, dmg: 1.5, salvage: 4, speed: 0.9 };
 // spawn groups grow through a wave: +1 enemy per GROUP_GROW seconds, at most GROUP_GROW_MAX
 export const GROUP_GROW = 15, GROUP_GROW_MAX = 2;
-export const waveDmgMul = (w) => 1 + 0.15 * w;
+// enemy damage climbs fast in district 1 (0.15 a wave), then slower: hull grows more slowly than guns do
+export const waveDmgMul = (w) => 1 + 0.15 * Math.min(w, 4) + 0.1 * Math.max(0, w - 4);
 
 export const SHOP = {
   offers: 4,

@@ -9,7 +9,7 @@ import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play, setRain, probe, SFX_NAMES } from "./audio.js";
 import { toggle as toggleFullscreen, syncButtons as syncFs } from "./fullscreen.js";
 import { updateMusic, stinger, musicState, renderPreview } from "./music.js";
-import { WAVES } from "./content.js";
+import { WAVES, DISTRICT_WAVES, districtOf, pastCurfew } from "./content.js";
 import { getMeta, saveSettings, allowedWeapons, recordProgress, recordEnd, saveRun, loadRun, savedRunSummary, unlockForSession } from "./meta.js";
 
 // URL knobs for testing: see the test hooks block at the end of this file
@@ -44,11 +44,18 @@ let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = 
 function deploy() {
   if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
   run = newRun({ seed: opts.seed ?? (Date.now() >>> 0), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
-  if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=6 is past curfew +1
+  if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=16 is past curfew +1 (the city stays district 1's)
   else if (!BOT && !params.has("nointro") && (!params.has("go") || params.has("intro"))) { run.intro = { t: 0 }; run.events.push({ type: "dropship" }); }   // round 1: the drop (?go test runs skip it unless &intro)
   paused = false; acc = 0; shownPhase = "";
   input.reset();
   syncScreens();
+}
+
+/** A new district: the dropship sets the mech down again (not for the bot or ?nointro) */
+function arrive() {
+  if (!run.arriving) return;
+  run.arriving = false;
+  if (!BOT && !params.has("nointro")) { run.intro = { t: 0 }; run.events.push({ type: "dropship" }); }
 }
 
 function toTitle() {
@@ -83,8 +90,8 @@ function syncScreens() {
   } else if (run.phase === "hangar") {
     input.reset();
     recordProgress(run, run.wave + 2); saveRun(run);
-    if (BOT) { botShop(run); setTimeout(() => { nextWave(run); syncScreens(); }, 400); }
-    renderHangar(run, () => { opts.targeting = run.targeting; nextWave(run); syncScreens(); });
+    if (BOT) { botShop(run); setTimeout(() => { nextWave(run); arrive(); syncScreens(); }, 400); }
+    renderHangar(run, () => { opts.targeting = run.targeting; nextWave(run); arrive(); syncScreens(); });
   } else {
     if (!run.ended) { run.ended = true; recordEnd(run); }
     if (BOT && run.phase === "won" && params.has("endless")) setTimeout(stay, 400);
@@ -202,7 +209,7 @@ function musicContext() {
   }
   return {
     mode: "combat", boss, paused, vent: run.cap.vent > 0, darkness: darkness(run),
-    threat: Math.min(1, near / 28 + run.wave * 0.08),
+    threat: Math.min(1, near / 28 + (pastCurfew(run.wave) ? 0.4 : (run.wave % DISTRICT_WAVES) * 0.08 + districtOf(run.wave) * 0.04)),
     danger: p.hp / run.stats.maxHp < 0.35 ? 1 : 0,
   };
 }
@@ -213,7 +220,7 @@ function musicContext() {
 //
 // URL knobs (read above):
 //   ?go            skip the title and deploy      ?bot        autopilot + auto-shop (bot.js)   ?endless  the bot stays out past curfew
-//   ?chassis=kestrel|warden|bulwark|tempest   ?start=<weapon key>   ?seed=N   ?wave=N (6+ = past curfew)   ?tod=day|dusk|night
+//   ?chassis=kestrel|warden|bulwark|tempest   ?start=<weapon key>   ?seed=N   ?wave=N (16+ = past curfew)   ?tod=day|dusk|night
 //   ?ts=0.1..16    time scale                     ?unlockall  unlock everything this session    ?target=crowd|heavies|nearest
 //   ?vent=energy   the old energy-only vent mode  ?intro / ?nointro  force or skip the round-1 drop (?go skips it by default)
 //   ?noshaders     plain Canvas2D output          ?sheet / ?sheet2  sprite sheets instead of the game

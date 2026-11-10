@@ -3,7 +3,7 @@
 //   node tools/fuzz.mjs [runs=300]
 import { newRun, update, nextWave, startWave, choosePerk, recompute, assignMounts, stayOut } from "../src/game.js";
 import { botMove } from "../src/bot.js";
-import { WEAPONS, MODULES, CHASSIS, PERKS } from "../src/content.js";
+import { WEAPONS, MODULES, CHASSIS, PERKS, WAVES } from "../src/content.js";
 import { mulberry32 } from "../src/rng.js";
 
 // every weapon and enemy needs its art (a weapon without a sprite once broke the renderer on a phone)
@@ -26,11 +26,11 @@ for (let i = 0; i < RUNS; i++) {
     run.modules = Array.from({ length: Math.floor(r() * 8) }, () => pick(r, Object.keys(MODULES)));
     run.perks = Array.from({ length: Math.floor(r() * 10) }, () => { const k = pick(r, Object.keys(PERKS)); return { key: k, rare: r() < 0.3, fx: PERKS[k][r() < 0.3 ? 3 : 2] }; });
     recompute(run);
-    if (r() < 0.3) { run.wave = 5 + Math.floor(r() * 10); run.endless = true; }   // straight into endless, up to +10
-    else run.wave = 2 + Math.floor(r() * 3);
+    if (r() < 0.3) { run.wave = WAVES.length + Math.floor(r() * 10); run.endless = true; }   // straight into endless, up to +10
+    else run.wave = 2 + Math.floor(r() * (WAVES.length - 3));   // anywhere in the three districts (the city only changes when a district is entered in play)
     startWave(run);
     let t = 0;
-    while (run.phase !== "dead" && t < 60 * 400 && run.wave < 16) {
+    while (run.phase !== "dead" && t < 60 * 400 && run.wave < WAVES.length + 11) {
       if (run.phase === "won") { if (r() < 0.7) { stayOut(run); continue; } break; }
       if (run.phase === "levelup") { choosePerk(run, 0); continue; }
       if (run.phase === "hangar") { nextWave(run); continue; }

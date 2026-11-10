@@ -241,7 +241,7 @@ export function createRenderer(canvas) {
   function tickWeather(run, dt, d, left, top) {
     const W = weather, live = run.time !== W.lastT; W.lastT = run.time;
     W.rain = rainAt(d);
-    if (W.run !== run) { W.run = run; W.wet = W.rain; }   // the street takes a while to get wet (and would to dry)
+    if (W.run !== run || W.city !== run.city) { W.run = run; W.city = run.city; W.wet = W.rain; W.drops.length = W.splashes.length = 0; W.bolt = null; W.flash = 0; }   // a new run or a new district: last night's storm doesn't follow you   // the street takes a while to get wet (and would to dry)
     else if (live) W.wet += (W.rain - W.wet) * Math.min(1, dt * 0.5);
     W.wind = Math.cos((run.seed % 628) / 100) * 0.35;
     if (live) {
@@ -938,7 +938,8 @@ export function createRenderer(canvas) {
     const qa = Math.round(sun.a * 30) / 30, ql = Math.round(sun.len * 12) / 12;
     let dead = 0; for (const b of city.buildings) if (b.dead) dead++;
     const key = qa + ":" + ql + ":" + dead + ":" + city.buildings.length;
-    if (shade.key !== key) {
+    if (shade.key !== key || shade.city !== city) {
+      shade.city = city;
       if (!shade.c) { shade.c = new OffscreenCanvas(ARENA.w, ARENA.h); shade.g = shade.c.getContext("2d"); }
       const sg = shade.g; sg.clearRect(0, 0, ARENA.w, ARENA.h); sg.fillStyle = "#0b0f1c";
       const ca = Math.cos(qa), sa = Math.sin(qa);

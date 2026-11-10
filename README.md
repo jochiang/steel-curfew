@@ -1,6 +1,6 @@
 # Steel Curfew
 
-A Brotato-like mech shooter in a procedural, destructible city. Survive five waves as the day wears into night, spend salvage in the hangar between them, and take down the boss in the dark.
+A Brotato-like mech shooter in a procedural, destructible city. Fight through three districts of five waves each: in every one the day wears into night, you spend salvage in the hangar between waves, and a boss comes out in the dark. Your mech and its build carry over from district to district.
 
 **Play:** https://jochiang.github.io/steel-curfew/ (phone or desktop)
 

@@ -1,7 +1,7 @@
 // Between-run progression and saves, kept in this browser's localStorage. Every access is guarded:
 // storage can be missing, full or blocked (private windows), and the game must still run.
 
-import { WEAPONS, CHASSIS } from "./content.js";
+import { WEAPONS, CHASSIS, WAVES, pastCurfew } from "./content.js";
 import { recompute, attachLedger } from "./game.js";
 import { afterAction } from "./report.js";
 
@@ -117,7 +117,7 @@ export function saveRun(run) {
 export function savedRunSummary() {
   const d = read(RUN_KEY);
   if (!d) return null;
-  return { wave: d.wave + 2, chassis: d.chassisKey, level: d.level, phase: d.phase, curfew: d.endless ? d.wave - 3 : 0 };
+  return { wave: d.wave + 2, chassis: d.chassisKey, level: d.level, phase: d.phase, curfew: d.endless ? pastCurfew(d.wave + 1) : 0 };
 }
 
 /** Rebuild a live run from the save; `makeRun` is newRun (to get a well-formed object to fill in). */
@@ -128,6 +128,7 @@ export function loadRun(makeRun) {
     const run = makeRun({ seed: d.seed, chassis: d.chassisKey, start: "autocannon", ventMode: d.ventMode, targeting: d.targeting, tod: d.tod });
     const { city, randState, savedAt, ...rest } = d;
     Object.assign(run, rest);
+    if (run.endless && run.wave < WAVES.length - 1) run.endless = false;   // a past-curfew save from the five-wave game: it joins the campaign where it stood
     const Types = { tile: Uint8Array, ground: Uint8Array, bid: Int16Array, roadDir: Uint8Array };
     for (const k of TYPED) city[k] = Types[k].from(city[k]);
     run.city = city;
