@@ -43,11 +43,11 @@ precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D scene, wet;
 uniform vec2 buf, world;   // buffer size; world position of the buffer's top-left pixel
-uniform float wetness, time, flash;
+uniform float wetness, time, flash, gloss;   // gloss 1 = damp street; higher = longer, stronger, more mirror-like
 void main() {
   vec3 c = texture(scene, uv).rgb;
   vec4 wm = texture(wet, uv);
-  float m = wm.r * wm.a * wetness * (1.0 - wm.g);   // green marks a danger telegraph: kept crisp
+  float m = min(1.0, wm.r * (1.0 + 0.5 * (gloss - 1.0))) * wm.a * wetness * (1.0 - wm.g);   // green marks a danger telegraph: kept crisp
   if (m > 0.004) {
     vec2 px = floor(uv * buf) + 0.5;                    // y up
     float wy = world.y + buf.y - px.y;
@@ -55,7 +55,7 @@ void main() {
     for (int i = 1; i <= 12; i++) {
       float fi = float(i);
       float wob = floor(sin(wy * 0.9 + fi * 0.8 + time * 2.6) * (0.35 + fi * 0.1) + 0.5);   // ripples: wider further down the streak
-      vec2 q = (px + vec2(wob, floor(fi * 1.6) + 1.0)) / buf;
+      vec2 q = (px + vec2(wob, floor(fi * (1.3 + 0.3 * gloss)) + 1.0)) / buf;
       vec3 s = texture(scene, q).rgb;
       float l = max(s.r, max(s.g, s.b));
       // what reflects: things that stand on the street (cut out of the wet map: no alpha there), and anything
@@ -64,7 +64,7 @@ void main() {
       float src = max((1.0 - wq.a) * smoothstep(0.3, 0.8, l), smoothstep(0.85, 1.0, l)) * (1.0 - wq.g);
       acc += s * src * (1.0 - fi / 13.0);
     }
-    c = c * (1.0 - 0.18 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * m + (flash * m) * vec3(0.16, 0.18, 0.26);
+    c = c * (1.0 - 0.18 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * gloss * m + (flash * m) * vec3(0.16, 0.18, 0.26);
   }
   o = vec4(c, 1.0);
 }`;
@@ -175,7 +175,7 @@ export function createCompositor(canvas) {
       const r = P.reflect.u;
       gl.useProgram(P.reflect.prog); gl.uniform1i(r.scene, 0); gl.uniform1i(r.wet, 3);
       gl.uniform2f(r.buf, buf.width, buf.height); gl.uniform2f(r.world, wet.x, wet.y);
-      gl.uniform1f(r.wetness, wet.amount); gl.uniform1f(r.time, t); gl.uniform1f(r.flash, wet.flash || 0);
+      gl.uniform1f(r.wetness, wet.amount); gl.uniform1f(r.time, t); gl.uniform1f(r.flash, wet.flash || 0); gl.uniform1f(r.gloss, wet.gloss || 1);
       draw(P.reflect.prog, P.mid.fb, buf.width, buf.height);
       scene = P.mid.t;
     }

@@ -134,7 +134,7 @@ export function createRenderer(canvas) {
   const wet = new OffscreenCanvas(8, 8), wg = wet.getContext("2d");
   const cast = new OffscreenCanvas(8, 8), cg = cast.getContext("2d");   // scratch layer for lights that buildings block (castLights)
   let wetMap = null, wetCity = null;
-  let gfx = null, shaders = false, crt = false;
+  let gfx = null, shaders = false, crt = false, gloss = 1;
   function setShaders(on) {
     shaders = !!on;
     if (shaders && !gfx) gfx = createCompositor(glCanvas);
@@ -751,7 +751,7 @@ export function createRenderer(canvas) {
       paintHeat(run, X, Y, t);
       const wetOn = lit && weather.wet > 0.02;
       if (wetOn) paintWetMask(run, X, Y, ox, oy, t, shown, inView);
-      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7, crt, wet: wetOn ? { map: wet, amount: weather.wet, flash: storm.flash, x: li - 1, y: ti - 1 } : null }); }
+      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7, crt, wet: wetOn ? { map: wet, amount: weather.wet, gloss, flash: storm.flash, x: li - 1, y: ti - 1 } : null }); }
       catch (e) { gfx.ok = false; console.error("shaders off:", e); }   // e.g. a browser that can't upload an OffscreenCanvas: Canvas2D from now on
     }
     glCanvas.style.display = viaGL ? "block" : "none";
@@ -1410,5 +1410,5 @@ export function createRenderer(canvas) {
   }
 
   const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.close; resize(); };
-  return { draw, resize, setZoom, setShaders, setCrt: (on) => { crt = !!on; }, test: { strike: () => { weather.next = 0; } } /* test-only, see the block at the end of main.js */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
+  return { draw, resize, setZoom, setShaders, setCrt: (on) => { crt = !!on; }, setGloss: (v) => { gloss = Math.max(0, Math.min(4, +v || 1)); }, test: { strike: () => { weather.next = 0; } } /* test-only, see the block at the end of main.js */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
 }
