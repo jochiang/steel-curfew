@@ -77,7 +77,7 @@ void main() {
     float puddle = smoothstep(0.55, 0.9, wm.r);                     // puddles ripple; damp paving just has a soft, even sheen
     float glint = mix(0.45 + 0.12 * rip, mix(0.2, 1.6, smoothstep(0.45, 0.95, rip)), puddle);
     acc += lit * glint * 0.65;
-    c = c * (1.0 - 0.18 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * gloss * m + (flash * m) * vec3(0.16, 0.18, 0.26);
+    c = c * (1.0 - 0.07 * m) + vec3(0.012, 0.016, 0.028) * m + acc * 0.4 * gloss * m + (flash * m) * vec3(0.16, 0.18, 0.26);
   }
   o = vec4(c, 1.0);
 }`;

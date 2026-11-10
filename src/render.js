@@ -208,7 +208,7 @@ export function createRenderer(canvas) {
   // Ambient light by darkness d (0 day .. 1 night): the colour the scene is multiplied by. Night has a
   // floor (~1/3 of day; user: "the game gets real abstract real fast" at ~1/8): lamps and neon still
   // pop, but the street, the mech and every enemy stay readable all the way past curfew.
-  const AMBIENT = [[0, [255, 255, 255]], [0.3, [240, 216, 188]], [0.52, [204, 160, 146]], [0.76, [128, 122, 158]], [1, [80, 88, 122]]];
+  const AMBIENT = [[0, [255, 255, 255]], [0.3, [240, 216, 188]], [0.52, [204, 160, 146]], [0.76, [130, 124, 160]], [1, [86, 94, 128]]];
   function ambientAt(d) {
     let i = 0;
     while (i < AMBIENT.length - 2 && d > AMBIENT[i + 1][0]) i++;
@@ -820,7 +820,9 @@ export function createRenderer(canvas) {
   // light is south of it. What's left is added to the light map. Small lights and anything airborne still
   // go straight in.
   function cutShadows(c, city, lx, ly, R, X, Y) {
-    c.globalCompositeOperation = "destination-out"; c.fillStyle = "#000";
+    // not pitch black: a shadow keeps a fifth of the light and a roof nearly half (bounce and spill), so the
+    // night doesn't get darker overall than it was before buildings blocked light (user: "net net the game looks darker")
+    c.globalCompositeOperation = "destination-out";
     for (const b of city.buildings) {
       if (b.dead) continue;
       const x0 = b.x * TILE, y0 = b.y * TILE, x1 = x0 + b.w * TILE, y1 = y0 + b.h * TILE, H = wallHeight(b);
@@ -835,9 +837,10 @@ export function createRenderer(canvas) {
         if (lx < x1) sweep(x1, y0, x1, y1);
         if (ly < y1) sweep(x1, y1, x0, y1);
         if (lx > x0) sweep(x0, y1, x0, y0);
-        c.fill();
+        c.fillStyle = "rgba(0,0,0,0.8)"; c.fill();
       }
-      c.fillRect(X(x0), Y(y0 - H), x1 - x0, (ly < y1 ? y1 : y1 - H) - (y0 - H));
+      c.fillStyle = "rgba(0,0,0,0.55)"; c.fillRect(X(x0), Y(y0 - H), x1 - x0, y1 - y0);
+      if (ly < y1) { c.fillStyle = "rgba(0,0,0,0.8)"; c.fillRect(X(x0), Y(y1 - H), x1 - x0, H); }
     }
     c.globalCompositeOperation = "lighter";
   }
