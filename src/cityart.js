@@ -8,6 +8,33 @@ import { OUTLINE } from "./art.js";
 const px = (g, c, x, y, w = 1, h = 1) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
 const hash = (a, b, c) => { let h = (a ^ Math.imul(b, 374761393) ^ Math.imul(c, 668265263)) >>> 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
+// ---------------------------------------------------------------- wet streets
+/** Where rain collects, for the reflection shader: a city-sized map, red = how mirror-like the ground is
+ *  there (0 grass and the city edge, a low sheen on damp paving, 1 in puddles). Puddles are noise blobs,
+ *  squashed for the 3/4 view and more common on the roads than on the sidewalks. */
+export function paintWet(city) {
+  const W = COLS * TILE, H = ROWS * TILE, c = new OffscreenCanvas(W, H), g = c.getContext("2d");
+  const img = g.createImageData(W, H), s = city.seed | 0;
+  const lerp = (a, b, t) => a + (b - a) * t, ease = (t) => t * t * (3 - 2 * t);
+  const noise = (x, y, k) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = ease(x - xi), v = ease(y - yi);
+    return lerp(lerp(hash(xi, yi, s + k), hash(xi + 1, yi, s + k), u), lerp(hash(xi, yi + 1, s + k), hash(xi + 1, yi + 1, s + k), u), v);
+  };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const kind = city.ground[((y / TILE) | 0) * COLS + ((x / TILE) | 0)];
+    let v = 0;
+    if (kind !== G.GRASS && kind !== G.EDGE) {
+      const road = kind === G.ROAD || kind === G.LOT;
+      const n = noise(x / 17, y / 10, 11) * 0.65 + noise(x / 6, y / 3.5, 23) * 0.35;
+      v = n > (road ? 0.56 : 0.66) ? 1 : n > (road ? 0.52 : 0.63) ? 0.75 : road ? 0.5 : 0.4;
+    }
+    const i = (y * W + x) * 4;
+    img.data[i] = Math.round(v * 255); img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
 // ---------------------------------------------------------------- ground
 export function paintGround(city) {
   const W = COLS * TILE, H = ROWS * TILE, c = new OffscreenCanvas(W, H), g = c.getContext("2d");

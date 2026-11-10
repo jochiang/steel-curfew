@@ -3,7 +3,7 @@ import { weaponsOffline, mountPoint, darkness, rainAt, altOf, beamOrigin, dropSt
 import { STICK_RADIUS } from "./input.js";
 import { mechFrames, mechParts, enemyFrames, flash, glow, salvageFrames, bigSalvageFrames, fogTexture, weaponSprites, OUTLINE, dropshipFrame } from "./art.js";
 import { TILE, COLS, wallHeight } from "./city.js";
-import { paintGround, paintBuilding, paintRubble, propSprites, NEON } from "./cityart.js";
+import { paintGround, paintBuilding, paintRubble, paintWet, propSprites, NEON } from "./cityart.js";
 import { createCompositor } from "./gl.js";
 
 // The world is drawn into a small buffer (about 180 game px on the short side by default) and blown up by an
@@ -129,7 +129,12 @@ export function createRenderer(canvas) {
   glCanvas.id = "gl"; glCanvas.setAttribute("aria-hidden", "true"); glCanvas.style.display = "none";
   canvas.parentNode.insertBefore(glCanvas, canvas);
   const heat = new OffscreenCanvas(8, 8), hg = heat.getContext("2d");
-  let gfx = null, shaders = false;
+  // wet streets: wetMap is the city's puddle map; `wet` is this frame's view of it with everything that stands
+  // on the street cut out, so reflections only show on open ground
+  const wet = new OffscreenCanvas(8, 8), wg = wet.getContext("2d");
+  const cast = new OffscreenCanvas(8, 8), cg = cast.getContext("2d");   // scratch layer for lights that buildings block (castLights)
+  let wetMap = null, wetCity = null;
+  let gfx = null, shaders = false, crt = false;
   function setShaders(on) {
     shaders = !!on;
     if (shaders && !gfx) gfx = createCompositor(glCanvas);
@@ -146,6 +151,8 @@ export function createRenderer(canvas) {
     buf.width = vw + 2; buf.height = vh + 2;
     light.width = buf.width; light.height = buf.height;
     heat.width = buf.width; heat.height = buf.height;
+    wet.width = buf.width; wet.height = buf.height;
+    cast.width = buf.width; cast.height = buf.height;
   }
   resize();
   addEventListener("resize", resize);
@@ -162,7 +169,7 @@ export function createRenderer(canvas) {
   // the city's ground canvas: scorch marks and rubble are stamped into it and persist for the run
   function syncFloor(run) {
     const city = run.city;
-    if (floorCity !== city) { floor = paintGround(city); fg = floor.getContext("2d"); floorCity = city; bsprites.clear(); smoke.length = 0; flames.length = 0; burning.clear(); }
+    if (floorCity !== city) { floor = paintGround(city); fg = floor.getContext("2d"); floorCity = city; bsprites.clear(); smoke.length = 0; flames.length = 0; burning.clear(); lampLights.clear(); }
     for (const f of run.fx) {
       if (f.stamped) continue;
       if (f.type === "collapse") { f.stamped = true; paintRubble(fg, city.buildings[f.bid]); burning.set(f.bid, run.time + 9); continue; }
@@ -229,11 +236,13 @@ export function createRenderer(canvas) {
   // lamp light, headlights and muzzle flashes and fade to a faint sheen elsewhere. Heavy rain brings
   // lightning: a bolt, a half-second blue-white flicker over the whole city, and thunder a moment
   // later (sooner and louder when the strike is close). Everything stops while the run is frozen.
-  const weather = { drops: [], splashes: [], next: 5, flash: 0, flashMax: 0.55, bolt: null, rain: 0, lastT: -1, wind: 0 };
+  const weather = { drops: [], splashes: [], next: 5, flash: 0, flashMax: 0.55, bolt: null, rain: 0, lastT: -1, wind: 0, wet: 0, run: null };
   const mixRgb = (css, to, k) => { const c = css.match(/\d+/g).map(Number); return "rgb(" + c.map((v, i) => Math.round(v + (to[i] - v) * k)).join(",") + ")"; };
   function tickWeather(run, dt, d, left, top) {
     const W = weather, live = run.time !== W.lastT; W.lastT = run.time;
     W.rain = rainAt(d);
+    if (W.run !== run) { W.run = run; W.wet = W.rain; }   // the street takes a while to get wet (and would to dry)
+    else if (live) W.wet += (W.rain - W.wet) * Math.min(1, dt * 0.5);
     W.wind = Math.cos((run.seed % 628) / 100) * 0.35;
     if (live) {
       const want = Math.round(200 * W.rain);
@@ -314,7 +323,8 @@ export function createRenderer(canvas) {
     lift = ds ? ds.alt : 0; carryX = carried ? carried.dx : 0; carryY = carried ? carried.dy : 0;
     // a clean slate every frame: if the last one threw halfway (inside a rotate, a lighter blend, a low alpha),
     // that must not leak into this one (a missing sprite once left the whole city drawn tilted)
-    for (const c of [g, lg, ctx]) { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = "source-over"; }
+    for (const c of [g, lg, ctx, cg, wg]) { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = "source-over"; }
+    L = lg;
     updateCamera(run, dt);
     syncFloor(run);
     const shake = run.shake > 0 ? run.shake : 0;
@@ -767,7 +777,9 @@ export function createRenderer(canvas) {
     let viaGL = false;
     if (shaders && gfx && gfx.ok) {
       paintHeat(run, X, Y, t);
-      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7 }); }
+      const wetOn = lit && weather.wet > 0.02;
+      if (wetOn) paintWetMask(run, X, Y, ox, oy, t, shown, inView);
+      try { viaGL = gfx.render(buf, heat, { S, fx, fy }, t, shockwaves(run, X, Y), { thresh: 0.74, bloom: 0.5, haze: 0.7, crt, wet: wetOn ? { map: wet, amount: weather.wet, flash: storm.flash, x: li - 1, y: ti - 1 } : null }); }
       catch (e) { gfx.ok = false; console.error("shaders off:", e); }   // e.g. a browser that can't upload an OffscreenCanvas: Canvas2D from now on
     }
     glCanvas.style.display = viaGL ? "block" : "none";
@@ -818,14 +830,65 @@ export function createRenderer(canvas) {
   }
 
   // A banded searchlight wedge into the light map (3 hard steps, so it stays pixel-art)
+  let L = lg;   // where lights are being drawn: the light map, or the scratch layer of a shadow-casting group
   function cone(x, y, a, R, spread, col) {
     const c = parseInt(col.slice(1), 16), step = (k) => "rgb(" + [c >> 16, (c >> 8) & 255, c & 255].map((v) => Math.round(v * k)).join(",") + ")";
-    lg.save();
-    lg.beginPath(); lg.moveTo(x, y); lg.arc(x, y, R, a - spread, a + spread); lg.closePath(); lg.clip();
-    const grad = lg.createRadialGradient(x, y, 4, x, y, R);
+    L.save();
+    L.beginPath(); L.moveTo(x, y); L.arc(x, y, R, a - spread, a + spread); L.closePath(); L.clip();
+    const grad = L.createRadialGradient(x, y, 4, x, y, R);
     for (const [o, k] of [[0, 1], [0.35, 1], [0.35, 0.69], [0.65, 0.69], [0.65, 0.375], [1, 0.375]]) grad.addColorStop(o, step(k));
-    lg.fillStyle = grad; lg.fillRect(x - R, y - R, R * 2, R * 2);
-    lg.restore();
+    L.fillStyle = grad; L.fillRect(x - R, y - R, R * 2, R * 2);
+    L.restore();
+  }
+
+  // ---- buildings block light. The big ground-level lights (the mech's searchlight and light package, muzzle
+  // flashes, blasts, boss headlights, street lamps) are drawn into a scratch layer first; then, for every
+  // building near the light, the street behind it is cut out (each wall facing away from the light, swept
+  // away from it), along with its roof (ground lights don't reach up there) and its south wall unless the
+  // light is south of it. What's left is added to the light map. Small lights and anything airborne still
+  // go straight in.
+  function cutShadows(c, city, lx, ly, R, X, Y) {
+    c.globalCompositeOperation = "destination-out"; c.fillStyle = "#000";
+    for (const b of city.buildings) {
+      if (b.dead) continue;
+      const x0 = b.x * TILE, y0 = b.y * TILE, x1 = x0 + b.w * TILE, y1 = y0 + b.h * TILE, H = wallHeight(b);
+      if (x1 < lx - R || x0 > lx + R || y1 < ly - R || y0 - H > ly + R) continue;
+      if (!(lx > x0 && lx < x1 && ly > y0 && ly < y1)) {
+        c.beginPath();
+        const sweep = (ax, ay, bx, by) => {
+          const fa = 500 / Math.max(1, Math.hypot(ax - lx, ay - ly)), fb = 500 / Math.max(1, Math.hypot(bx - lx, by - ly));
+          c.moveTo(X(ax), Y(ay)); c.lineTo(X(bx), Y(by)); c.lineTo(X(bx + (bx - lx) * fb), Y(by + (by - ly) * fb)); c.lineTo(X(ax + (ax - lx) * fa), Y(ay + (ay - ly) * fa)); c.closePath();
+        };
+        if (ly > y0) sweep(x0, y0, x1, y0);
+        if (lx < x1) sweep(x1, y0, x1, y1);
+        if (ly < y1) sweep(x1, y1, x0, y1);
+        if (lx > x0) sweep(x0, y1, x0, y0);
+        c.fill();
+      }
+      c.fillRect(X(x0), Y(y0 - H), x1 - x0, (ly < y1 ? y1 : y1 - H) - (y0 - H));
+    }
+    c.globalCompositeOperation = "lighter";
+  }
+  function castLights(city, lx, ly, R, X, Y, fn) {
+    cg.globalCompositeOperation = "source-over"; cg.clearRect(0, 0, cast.width, cast.height); cg.globalCompositeOperation = "lighter";
+    L = cg; try { fn(); } finally { L = lg; }
+    cutShadows(cg, city, lx, ly, R, X, Y);
+    lg.drawImage(cast, 0, 0);
+  }
+  // street lamps don't move: each one's shadowed pool of light is made once and kept until a building falls
+  const lampLights = new Map();
+  function lampLight(pr, city, ver) {
+    let e = lampLights.get(pr);
+    if (e && e.ver === ver) return e.c;
+    const R = 33;
+    if (!e) { e = { c: new OffscreenCanvas(R * 2 + 1, R * 2 + 1) }; lampLights.set(pr, e); }
+    const c = e.c.getContext("2d"); e.ver = ver;
+    c.globalCompositeOperation = "source-over"; c.clearRect(0, 0, R * 2 + 1, R * 2 + 1); c.globalCompositeOperation = "lighter";
+    const a = lightOf(32, "#5a4c32"), b = lightOf(14, "#3c3322");
+    c.drawImage(a, R - (a.width >> 1), R - (a.height >> 1)); c.drawImage(b, R - (b.width >> 1), R - 2 - (b.height >> 1));
+    const cx = Math.round(pr.x), cy = Math.round(pr.y + 4);
+    cutShadows(c, city, pr.x, pr.y + 4, R + 2, (v) => Math.round(v) - cx + R, (v) => Math.round(v) - cy + R);
+    return e.c;
   }
 
   // ---- napalm (user: "a little spicy fanta right now"): not a flat orange disc but a black, oily, ragged
@@ -999,28 +1062,31 @@ export function createRenderer(canvas) {
     lg.globalCompositeOperation = "source-over";
     lg.fillStyle = tod.ambient; lg.fillRect(0, 0, light.width, light.height);
     lg.globalCompositeOperation = "lighter";
-    const put = (r, col, x, y) => { const s = lightOf(r, col); lg.drawImage(s, X(x) - (s.width >> 1), Y(y) - (s.height >> 1)); };
+    const put = (r, col, x, y) => { const s = lightOf(r, col); L.drawImage(s, X(x) - (s.width >> 1), Y(y) - (s.height >> 1)); };
+    // lights that buildings block (see castLights); while the mech is still in the air on the drop, nothing does
+    const shadowed = (lx, ly, R, fn) => { if (run.intro) fn(); else castLights(city, lx, ly, R, X, Y, fn); };
+    let deadCount = 0; for (const b of city.buildings) if (b.dead) deadCount++;
 
     // the mech: a halo, and a searchlight that tracks what it's aiming at
     const venting = run.cap.vent > 0;
     put(26, venting ? "#5a2a1a" : "#2c3550", p.x, p.y);
-    if (power.lit) {
-      cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
-      cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
-    }
+    const pack = power.lit ? mechLights(run, t) : null;
+    shadowed(p.x, p.y, 200, () => {
+      if (power.lit) {
+        cone(X(p.x), Y(p.y - 4), p.aim, 124, 0.42, "#f2e8d0");   // the searchlight, with a hot core down the middle
+        cone(X(p.x), Y(p.y - 4), p.aim, 84, 0.17, "#7a7058");
+        for (const c of pack.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);   // the frame's light package (see mechLights)
+        for (const l of pack.lights) put(l.r, l.col, l.x, l.y);
+      }
+      for (const f of run.fx) if (f.type === "muzzle" && inView(f.x - 60, f.y - 60, f.x + 60, f.y + 60)) put((f.key === "flak" ? 72 : 46) * (f.t / f.max > 0.45 ? 1 : 0.7), f.key === "flak" ? "#e8b060" : "#d0a050", f.x, f.y);
+    });
     if (weather.bolt) put(70, "#7a8ad0", weather.bolt.x, weather.bolt.y);   // the strike lights up the block it hits
     if (run.intro) {   // the dropship: engine glow, nav lights and a floodlight on the drop point
       const o = dropshipAt(run.intro.t), sx = p.x + o.dx, sy = p.y + o.dy - DROP.alt - 30, gs = ship.glow || (ship.glow = dropshipFrame(true));
       lg.drawImage(gs, X(sx) - (gs.width >> 1), Y(sy) - (gs.height >> 1));
       put(28, "#8a5a20", sx, sy + 4); cone(X(sx), Y(sy + 8), Math.PI / 2 + 0.2, 70, 0.35, "#8a8470");
     }
-    if (power.lit) {   // the frame's light package (see mechLights)
-      const L = mechLights(run, t);
-      for (const c of L.cones) cone(X(p.x), Y(c.y), c.a, c.R, c.spread, c.col);
-      for (const l of L.lights) put(l.r, l.col, l.x, l.y);
-      lg.fillStyle = "#ffffff";
-      for (const q of L.px) if (q.lit) lg.fillRect(X(q.x), Y(q.y), 1, 1);
-    }
+    if (pack) { lg.fillStyle = "#ffffff"; for (const q of pack.px) if (q.lit) lg.fillRect(X(q.x), Y(q.y), 1, 1); }
     if (venting) put(14, "#7a3818", p.x, p.y - 4);
 
     // street lamps and parked cars with their lights on (each switches on at its own moment)
@@ -1028,8 +1094,8 @@ export function createRenderer(canvas) {
     for (const pr of city.props) {
       if (pr.broken || !inView(pr.x - 40, pr.y - 40, pr.x + 40, pr.y + 40)) continue;
       if (pr.type === "lamp" && onAt(d, 0.42, pr.x * 7 + pr.y)) {
-        put(32, "#5a4c32", pr.x, pr.y + 4);
-        put(14, "#3c3322", pr.x, pr.y + 2);
+        const ll = lampLight(pr, city, deadCount);
+        lg.drawImage(ll, X(pr.x) - (ll.width >> 1), Y(pr.y + 4) - (ll.height >> 1));
         put(4, "#ffffff", pr.x, pr.y - 9);
       } else if (pr.type === "car" && pr.lights && onAt(d, 0.58, pr.x + pr.y * 3)) {
         const fx = pr.dir ? pr.face : 0, fy = pr.dir ? 0 : pr.face;
@@ -1072,12 +1138,14 @@ export function createRenderer(canvas) {
         put(24, "#8a8468", p.x, p.y + 6);
       } else if (e.type === "siege") {
         const a = t * 0.9 + e.ph * 6;
-        cone(X(e.x), Y(e.y - 12), a, 130, 0.22, "#8a8470"); cone(X(e.x), Y(e.y - 12), a + Math.PI, 130, 0.22, "#8a8470");
+        shadowed(e.x, e.y, 140, () => { cone(X(e.x), Y(e.y - 12), a, 130, 0.22, "#8a8470"); cone(X(e.x), Y(e.y - 12), a + Math.PI, 130, 0.22, "#8a8470"); });
         put(24, "#4a3a2a", e.x, e.y);
       } else {
         const a = Math.atan2(p.y - e.y, p.x - e.x);
-        cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a - 0.15, 110, 0.18, "#9a8a60");
-        cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a + 0.15, 110, 0.18, "#9a8a60");
+        shadowed(e.x, e.y, 130, () => {
+          cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a - 0.15, 110, 0.18, "#9a8a60");
+          cone(X(e.x + Math.cos(a) * 10), Y(e.y + Math.sin(a) * 10), a + 0.15, 110, 0.18, "#9a8a60");
+        });
         put(44 + Math.random() * 4, "#7a3410", e.x, e.y);
       }
     }
@@ -1114,6 +1182,7 @@ export function createRenderer(canvas) {
     for (const b of city.buildings) if (b.burn > 0 && !b.dead) put(14 + b.w * 3 + Math.random() * 4, "#6a2c0c", (b.x + b.w / 2) * TILE, (b.y + b.h / 2) * TILE - wallHeight(b));
     for (const e of run.enemies) if (e.burn > 0) put(10, "#5a2408", e.x, e.y);
     // weapon effects (only what's on screen)
+    let blasts = 0;
     for (const f of run.fx) {
       if (f.x != null && !inView(f.x - 60, f.y - 60, f.x + 60, f.y + 60)) continue;
       const k = f.t / f.max;
@@ -1122,13 +1191,16 @@ export function createRenderer(canvas) {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 10);
         for (let i = 0; i <= n; i++) put(18 * (0.5 + k * 0.5), "#5a3a9a", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
       }
-      if (f.type === "muzzle") put((f.key === "flak" ? 72 : 46) * (k > 0.45 ? 1 : 0.7), f.key === "flak" ? "#e8b060" : "#d0a050", f.x, f.y);
+      if (f.type === "muzzle") { /* with the mech's lights, above */ }
       else if (f.type === "impact") put(8, "#6a5a2a", f.x, f.y);
       else if (f.type === "punch") put(26 * k + 6, "#8a7a60", f.x, f.y);
       else if (f.type === "flare") put(30 * k + 6, "#6a4aa8", f.x, f.y);
       else if (f.type === "launch") put(12, "#7a5a28", f.x, f.y);
       else if (f.type === "arc") for (const [x, y] of f.pts) put(30 * (0.5 + k * 0.5), "#3a8ab8", x, y);
-      else if (f.type === "boom") put(f.r * 5 * (0.4 + k), k > 0.5 ? "#b8601e" : "#6a2e10", f.x, f.y);
+      else if (f.type === "boom") {   // the big blasts throw shadows too (a few per frame; the rest just glow)
+        const R = f.r * 5 * (0.4 + k), col = k > 0.5 ? "#b8601e" : "#6a2e10";
+        if (f.r >= 8 && blasts++ < 4) shadowed(f.x, f.y, R + 4, () => put(R, col, f.x, f.y)); else put(R, col, f.x, f.y);
+      }
       else if (f.type === "beam") {
         const n = Math.ceil(Math.hypot(f.x2 - f.x1, f.y2 - f.y1) / 8);
         for (let i = 0; i <= n; i++) put(22 * (0.5 + k * 0.5), "#3a8aae", f.x1 + ((f.x2 - f.x1) * i) / n, f.y1 + ((f.y2 - f.y1) * i) / n);
@@ -1168,13 +1240,13 @@ export function createRenderer(canvas) {
     g.fillStyle = "#ffe0c9"; g.fillRect(x, y, 1, 1);
   }
 
-  function drawProp(pr, X, Y) {
+  function drawProp(pr, X, Y, c = g) {
     let spr;
     if (pr.type === "car") spr = (pr.broken ? props.carBroken : props.car)[pr.dir][pr.color];
     else if (pr.type === "tree") spr = pr.broken ? props.treeBroken : props.tree[pr.v];
     else spr = pr.broken ? props.lampBroken : props.lamp;
     const base = pr.type === "car" ? spr.height / 2 : spr.height - 2;
-    g.drawImage(spr, X(pr.x) - (spr.width >> 1), Y(pr.y) - Math.round(base));
+    c.drawImage(spr, X(pr.x) - (spr.width >> 1), Y(pr.y) - Math.round(base));
   }
 
   /** Is a point just north of a standing building, under its raised roof? */
@@ -1274,6 +1346,25 @@ export function createRenderer(canvas) {
     }
   }
 
+  // the wet mask: the puddle map as the camera sees it, minus everything standing on the street
+  function paintWetMask(run, X, Y, ox, oy, t, shown, inView) {
+    const p = run.player, city = run.city;
+    if (wetCity !== city) { wetMap = paintWet(city); wetCity = city; }
+    wg.globalCompositeOperation = "source-over"; wg.clearRect(0, 0, wet.width, wet.height);
+    wg.drawImage(wetMap, ox, oy);
+    wg.globalCompositeOperation = "destination-out";
+    for (const [, spr, bx, by] of shown) wg.drawImage(spr, bx, by);
+    for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) drawProp(pr, X, Y, wg);
+    for (const e of run.enemies) {
+      if (e.d.hive || !inView(e.x - 24, e.y - 40, e.x + 24, e.y + 24)) continue;
+      const fr = enemies[e.type].frames, n = fr.length, fi = n > 1 ? Math.floor(t * (e.fuse ? 22 : e.type === "skitter" || e.type === "wasp" ? 12 : 4) + e.ph * 10) % n : 0, spr = fr[fi];
+      wg.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) - (e.d.flying ? altOf(e) : 0) - 1);
+    }
+    composeMech(wg, mechSet(run.chassisKey).cold, p, X, Y, p.moving ? Math.floor(t * 9) % 4 : 0, null);
+    wg.fillStyle = "#000"; wg.fillRect(X(p.x) - 10, Y(p.y) + 12, 21, 4);   // the capacitor bar
+    wg.globalCompositeOperation = "source-over";
+  }
+
   // the heat mask: soft white where something is hot (napalm, fires, a venting mech, blasts, muzzles, beams)
   function paintHeat(run, X, Y, t) {
     hg.globalCompositeOperation = "source-over"; hg.clearRect(0, 0, heat.width, heat.height);
@@ -1309,5 +1400,5 @@ export function createRenderer(canvas) {
   }
 
   const setZoom = (z) => { target = ZOOMS[z] || ZOOMS.close; resize(); };
-  return { draw, resize, setZoom, setShaders, test: { strike: () => { weather.next = 0; } } /* test-only, see the block at the end of main.js */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
+  return { draw, resize, setZoom, setShaders, setCrt: (on) => { crt = !!on; }, test: { strike: () => { weather.next = 0; } } /* test-only, see the block at the end of main.js */, get shaders() { return shaders && !!gfx && gfx.ok; }, get scale() { return S; }, get view() { return { vw, vh }; } };
 }

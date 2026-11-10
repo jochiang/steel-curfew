@@ -26,6 +26,7 @@ const input = createInput(canvas);
 const renderer = createRenderer(canvas);
 renderer.setZoom(getMeta().settings.zoom || "close");
 renderer.setShaders(getMeta().settings.shaders !== false && !params.has("noshaders"));   // on by default; ?noshaders for a quick compare
+renderer.setCrt(params.has("crt") || !!getMeta().settings.crt);   // the retro screen: off by default; ?crt to try it
 
 if (params.has("unlockall")) unlockForSession();
 const saved = getMeta().settings;   // last choices, unless the URL says otherwise
@@ -215,6 +216,7 @@ function musicContext() {
 //   ?ts=0.1..16    time scale                     ?unlockall  unlock everything this session    ?target=crowd|heavies|nearest
 //   ?vent=energy   the old energy-only vent mode  ?intro / ?nointro  force or skip the round-1 drop (?go skips it by default)
 //   ?noshaders     plain Canvas2D output          ?sheet / ?sheet2  sprite sheets instead of the game
+//   ?crt           retro screen on
 //
 // window.__mech: live handles (run, paused, deploy, pause, resume, resumeRun, opts, renderer, music, lastError), plus
 // window.__mech.test: helpers with no use in the game: strike() (lightning now, heavy rain only), probe(type, e, filter, raw)
@@ -228,4 +230,5 @@ window.__mech = {
 if (params.has("go")) deploy(); else toTitle();
 addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
 addEventListener("mech:shaders", (e) => renderer.setShaders(e.detail));
+addEventListener("mech:crt", (e) => renderer.setCrt(e.detail));
 requestAnimationFrame(frame);

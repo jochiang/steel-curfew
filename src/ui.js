@@ -37,7 +37,8 @@ export function openSettings(onClose) {
       <div class="set-row"><span>Zoom</span><div class="seg seg3">${ZOOMS_UI.map(([k, n]) => `<button data-zoomset="${k}" class="${zoom === k ? "on" : ""}">${n}</button>`).join("")}</div></div>
       ${fsSupported() ? `<button class="ghost" data-fs>${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</button>`
         : isIOS() && !standalone() ? `<p class="ios-tip">For fullscreen on iPhone: Share → Add to Home Screen, then play from the icon.</p>` : ""}
-      <label class="toggle"><input type="checkbox" data-shaders ${getMeta().settings.shaders !== false ? "checked" : ""}> Shader effects <em>(bloom, heat haze, shockwaves)</em></label>
+      <label class="toggle"><input type="checkbox" data-shaders ${getMeta().settings.shaders !== false ? "checked" : ""}> Shader effects <em>(bloom, heat haze, wet streets)</em></label>
+      <label class="toggle"><input type="checkbox" data-crt ${getMeta().settings.crt ? "checked" : ""}> Retro screen <em>(scanlines, needs shader effects)</em></label>
       <label class="toggle"><input type="checkbox" data-unlockall ${getMeta().unlockAll ? "checked" : ""}> Unlock everything <em>(for testing)</em></label>
       <button class="primary" data-close>Done</button>
     </div>`;
@@ -51,6 +52,7 @@ export function openSettings(onClose) {
   el.addEventListener("change", (e) => {
     if (e.target.dataset.vol === "sfx") sfx("click");   // hear the new level
     if ("unlockall" in e.target.dataset) setUnlockAll(e.target.checked);
+    if ("crt" in e.target.dataset) { saveSettings({ crt: e.target.checked }); dispatchEvent(new CustomEvent("mech:crt", { detail: e.target.checked })); }
     if ("shaders" in e.target.dataset) { saveSettings({ shaders: e.target.checked }); dispatchEvent(new CustomEvent("mech:shaders", { detail: e.target.checked })); }
   });
   el.onclick = (e) => {
