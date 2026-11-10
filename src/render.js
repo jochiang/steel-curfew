@@ -1364,7 +1364,7 @@ export function createRenderer(canvas) {
     for (const [, spr, bx, by] of shown) wg.drawImage(spr, bx, by);
     for (const pr of city.props) if (inView(pr.x - 8, pr.y - 14, pr.x + 8, pr.y + 8)) drawProp(pr, X, Y, wg);
     composeMech(wg, mechSet(run.chassisKey).cold, p, X, Y, p.moving ? Math.floor(t * 9) % 4 : 0, null);
-    wg.fillStyle = "#000"; wg.fillRect(X(p.x) - 10, Y(p.y) + 12, 21, 4);   // the capacitor bar
+    if (run.weapons.some((w) => WEAPONS[w.key].family === "energy")) { wg.fillStyle = "#000"; wg.fillRect(X(p.x) - 10, Y(p.y) + 12, 21, 4); }   // the capacitor bar, when there is one
     wg.globalCompositeOperation = "lighter";   // green = danger (telegraphs, enemies, their shots): never reflected, never reflected onto
     for (const e of run.enemies) {
       if (e.d.hive || !inView(e.x - 24, e.y - 40, e.x + 24, e.y + 24)) continue;
