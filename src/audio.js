@@ -139,6 +139,10 @@ const SFX = {
     tone("square", 880 * 2 ** (pickupChain / 12), 880 * 2 ** (pickupChain / 12), 0.04, 0.035);
   },
   hurt: () => gate("hurt", 120) && (tone("square", 150, 70, 0.16, 0.12), hiss(0.1, 0.1, { type: "lowpass", f0: 900 })),
+  chargeUp: (e) => gate("chargeUp", 120) && (tone("sawtooth", 90, 260, e.dur ?? 0.7, 0.05, { attack: (e.dur ?? 0.7) * 0.7 })),
+  dash: () => gate("dash", 80) && (hiss(0.22, 0.09, { f0: 500, f1: 2600, q: 1.2 }), tone("square", 180, 70, 0.18, 0.06)),
+  snipeAim: (e) => gate("snipeAim", 150) && (tone("sine", 1500, 2300, e.dur ?? 1.1, 0.022, { attack: (e.dur ?? 1.1) * 0.9 })),
+  snipe: () => gate("snipe", 60) && (tone("square", 2400, 300, 0.09, 0.07), hiss(0.06, 0.08, { f0: 4200, q: 1.5 }), tone("sine", 140, 60, 0.12, 0.1)),
   enemyShot: () => gate("eshot", 120) && tone("triangle", 420, 700, 0.08, 0.04),
   lightsOn: () => {   // relays clunking closed, then the rigs hum up
     tone("square", 90, 60, 0.05, 0.08); tone("square", 110, 70, 0.05, 0.07, { when: 0.19 }); tone("square", 95, 65, 0.05, 0.07, { when: 0.36 });

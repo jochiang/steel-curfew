@@ -328,6 +328,69 @@ const WASP = [
   ["w.....", "ww..oo", ".wwo43", "..o43E", "...o22", "....o1", "......"],
   ["......", "....oo", "...o43", "wwo43E", "www.22", "w...o1", "......"],
 ];
+// The later-district types: angular silhouettes, each its own colour, nothing round (user, 2026-11-10: "I'm not in
+// love with the existing enemy shapes so don't feel like you have to commit to the round blob thing").
+// Charger: a wide, low, horned ram in bone white
+const CHARGER = [
+  "oo......",
+  "o5o.....",
+  "o45o.ooo",
+  ".o44o455",
+  ".o344444",
+  ".o33oeEe",
+  "o4332ooo",
+  "o3322222",
+  ".o221111",
+  ".oo2oooo",
+  ".o1o....",
+  ".ooo....",
+];
+// Shield Drone: a thin upright walker; its plate is drawn separately, on the side it faces
+const SHIELDER = [
+  "..oo",
+  ".o45",
+  ".ovv",
+  ".o33",
+  "oooo",
+  "o3o4",
+  "o2o3",
+  "o2o3",
+  ".oo2",
+  "..o2",
+  ".oo1",
+  ".o1o",
+  ".ooo",
+];
+// Marksman: a spindly tripod with one red lens; the barrel is drawn along its aim
+const SNIPER = [
+  "...oo",
+  "..o4L",
+  "..o3L",
+  "...oo",
+  "...o3",
+  "...o3",
+  "..oo2",
+  ".o3o2",
+  "o3ooo",
+  "o2o.o",
+  "oo..o",
+  "o...o",
+];
+// Firebomber: a soot-black delta wing with a canister under each side
+const BOMBER = [
+  "........o",
+  ".......o5",
+  "......o44",
+  "....oo433",
+  "..oo44332",
+  "oo443322E",
+  "o33oFo221",
+  "ooooFoooo",
+  "....o....",
+];
+RAMPS.bone = ["#2b2a26", "#5a564a", "#8f8a74", "#c4bea0", "#f0ead0"];
+RAMPS.navy = ["#141a33", "#25305c", "#3c4c8a", "#6a7fbf", "#aebcf0"];
+RAMPS.soot = ["#1c1a1f", "#34313a", "#55505c", "#857d88", "#b9b0b6"];
 // Dropship (the round-1 intro): a top-down VTOL transport, engine nacelles on the wingtips, an open
 // cargo bay the mech hangs under.
 const DROPSHIP = [
@@ -429,6 +492,10 @@ export function enemyFrames(type, glow = false, elite = false) {
     case "wasp": return WASP.map((f) => build(f, pal("teal", { w: "#bfe8e8", E: "#fff4c2" }), o("E")));
     case "siege": return [0, 1].map((k) => build(SIEGE, pal("steelRust", { ...EYE, E: k ? "#fff0c0" : "#ffb070" }), o("eE")));
     case "drone": return [build(DRONE, pal("rust", EYE), o("eE"))];
+    case "charger": return [build(CHARGER, pal("bone", EYE), o("eE"))];
+    case "shield": return [build(SHIELDER, pal("steel", { v: "#6fd6ff" }), o("v"))];
+    case "sniper": return [build(SNIPER, pal("navy", { L: "#ff3b2e" }), o("L"))];
+    case "bomber": return [0, 1].map((k) => build(BOMBER, pal("soot", { E: "#ffe9a0", F: k ? "#ffb347" : "#e8602c" }), o("EF")));
     case "hive": return [build(["o"], { o: "rgba(0,0,0,0)" })];   // drawn as its building, not a sprite
     case "gunship": return [build(GUNSHIP, pal("steel", { E: "#ffe9a0", L: "#ff3b2e", k: "#15131b", v: "#ff9a4c" }), o("ELv"))];
     case "skitter": return SKITTER.map((f) => build(f, pal("amber", { E: "#fff4c2", l: "#b5822a" }), o("E")));

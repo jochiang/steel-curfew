@@ -554,6 +554,11 @@ export function createRenderer(canvas) {
       if (Math.random() < dt * 10 * fuel) flame(pl.x + (Math.random() - 0.5) * pl.r, pl.y + (Math.random() - 0.5) * pl.r * 0.5);
     }
     telegraphs(g, run, X, Y, t, null);
+    for (const f of run.fx) if (f.type === "snipe") {   // the Marksman's shot: a hard white line that thins out
+      const k = f.t / f.max, x0 = X(f.x), y0 = Y(f.y) - 4, x1 = X(f.x + Math.cos(f.a) * f.len), y1 = Y(f.y + Math.sin(f.a) * f.len) - 4;
+      if (k > 0.5) { g.fillStyle = "#ff6a5a"; linePx(g, x0, y0 + 1, x1, y1 + 1); linePx(g, x0, y0 - 1, x1, y1 - 1); }
+      g.fillStyle = k > 0.3 ? "#ffffff" : "#ff9a8a"; linePx(g, x0, y0, x1, y1);
+    }
     for (const f of run.fx) {   // the beam itself: white core, orange, a deep red rim, thinning as it fades
       if (f.type !== "furnaceBeam") continue;
       const k = f.t / f.max;
@@ -1193,8 +1198,29 @@ export function createRenderer(canvas) {
     const spr = (ghost ? set.xray : e.flash > 0 ? set.flash : e.elite ? set.elite : set.frames)[fi];
     const bob = (e.type === "drone" ? Math.round(Math.sin(t * 5 + e.ph * 6) * 1.2) - 1 : 0) - alt + (alt ? Math.round(Math.sin(t * 7 + e.ph * 6)) : 0);
     if (ghost) g.globalAlpha = 0.5;
+    const plate = e.d.shield && e.face != null && !ghost;
+    if (plate && Math.sin(e.face) < 0) drawPlate(e, X, Y);   // facing away from the camera: the plate is behind the body
     g.drawImage(spr, X(e.x) - (spr.width >> 1), Y(e.y) - (spr.height >> 1) + bob);
+    if (plate && Math.sin(e.face) >= 0) drawPlate(e, X, Y);
+    if (e.d.snipe && !ghost) {   // the Marksman's barrel, along its aim (level when idle)
+      const a = e.snipeAim ?? 0, x = X(e.x), y = Y(e.y) - 4;
+      g.fillStyle = OUTLINE; linePx(g, x, y, x + Math.round(Math.cos(a) * 8), y + Math.round(Math.sin(a) * 6));
+      g.fillStyle = e.snipeAim != null ? "#ff6a5a" : "#6a7fbf"; g.fillRect(x + Math.round(Math.cos(a) * 8), y + Math.round(Math.sin(a) * 6), 1, 1);
+    }
     if (ghost) g.globalAlpha = 1;
+  }
+  /** The Shield Drone's plate: a short bright arc on the side it faces (squashed for the 3/4 view), flashing when it stops a hit */
+  function drawPlate(e, X, Y) {
+    const hit = e.blockT > 0, arc = e.d.shield.arc * 0.85, x = X(e.x), y = Y(e.y) - 1;
+    for (let i = -4; i <= 4; i++) {
+      const a = e.face + (arc * i) / 4, px = x + Math.round(Math.cos(a) * 8), py = y + Math.round(Math.sin(a) * 6);
+      g.fillStyle = OUTLINE; g.fillRect(px - 1, py - 3, 3, 7);
+    }
+    for (let i = -4; i <= 4; i++) {
+      const a = e.face + (arc * i) / 4, px = x + Math.round(Math.cos(a) * 8), py = y + Math.round(Math.sin(a) * 6);
+      g.fillStyle = hit ? "#ffffff" : Math.abs(i) === 4 ? "#3c6f96" : "#7fc4ee"; g.fillRect(px, py - 2, 1, 5);
+      if (!hit && Math.abs(i) < 3) { g.fillStyle = "#dff3ff"; g.fillRect(px, py - 2, 1, 1); }
+    }
   }
 
   function drawShot(s, X, Y) {   // tracer: a bright head and a fading tail
@@ -1335,6 +1361,26 @@ export function createRenderer(canvas) {
     c.globalAlpha = 1; c.fillStyle = mask || (blink ? "#ff8a70" : C.danger);
     c.fillRect(0, -B.width / 2, B.len, 1); c.fillRect(0, B.width / 2 - 1, B.len, 1); c.fillRect(B.len - 1, -B.width / 2, 1, B.width);
     c.restore();
+  }
+  // the Charger's lane (as it winds up), and the Marksman's aiming line: thin while it follows you, solid once locked
+  for (const e of run.enemies) {
+    if (e.chargeWarn > 0) {
+      const Ch = e.d.charge, k = 1 - e.chargeWarn / Ch.warn, blink = Math.floor(t * (8 + k * 20)) % 2;
+      c.save(); c.translate(X(e.x), Y(e.y)); c.rotate(e.chargeAim);
+      c.globalAlpha = mask ? 1 : 0.14 + 0.12 * blink; c.fillStyle = mask || C.danger; c.fillRect(0, -Ch.width / 2, Ch.len * k, Ch.width);
+      c.globalAlpha = 1; c.fillStyle = mask || (blink ? "#ff8a70" : C.danger);
+      c.fillRect(0, -Ch.width / 2, Ch.len, 1); c.fillRect(0, Ch.width / 2 - 1, Ch.len, 1);
+      for (let s = 12; s < Ch.len; s += 24) { c.fillRect(s, -2, 1, 5); c.fillRect(s + 1, -1, 1, 3); c.fillRect(s + 2, 0, 1, 1); }   // chevrons: which way it's coming
+      c.restore();
+    }
+    if (e.snipeWarn > 0 && e.snipeAim != null) {
+      const S = e.d.snipe, locked = e.snipeWarn <= S.lock, x0 = X(e.x), y0 = Y(e.y) - 4;
+      const x1 = X(e.x + Math.cos(e.snipeAim) * e.snipeLen), y1 = Y(e.y + Math.sin(e.snipeAim) * e.snipeLen) - 4;
+      c.globalAlpha = mask ? 1 : locked ? 1 : 0.35 + 0.25 * (Math.floor(t * 14) % 2);
+      c.fillStyle = mask || (locked ? "#ffd0c0" : C.danger); linePx(c, x0, y0, x1, y1);
+      if (locked && !mask) { c.globalAlpha = 0.5; c.fillStyle = C.danger; linePx(c, x0, y0 + 1, x1, y1 + 1); linePx(c, x0, y0 - 1, x1, y1 - 1); }
+      c.globalAlpha = 1;
+    }
   }
   // spawn telegraphs: a reticle that closes in
   for (const m of run.marks) {

@@ -341,7 +341,7 @@ export function update(run, dt, move) {
     if ((m.t -= dt) > 0) continue;
     if (ENEMIES[m.type].maxAlive && run.enemies.filter((e) => e.type === m.type).length >= ENEMIES[m.type].maxAlive) m.type = "drone";   // cap, swap for filler
     const d = ENEMIES[m.type], elite = !d.boss && !m.noElite && rand() < ELITE.chance(run.wave);
-    const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1);
+    const hp = d.hp * waveHpMul(run.wave) * (elite ? ELITE.hp : 1) * (d.boss ? wave.bossHp || 1 : 1);
     run.m.hpSpawned += hp;
     if (d.boss) { run.m.bossSpawnT = run.time; run.m.bossKillT = null; run.m.bossType = m.type; run.m.bossHp = hp; }   // each district's boss is its own fight
     if (d.hive) { const b = run.city.buildings[m.bid]; b.hiveBank = b.hp = HIVE_BANK; b.hiveFrac = 1; }
@@ -349,7 +349,7 @@ export function update(run, dt, move) {
       type: m.type, d: d.hive ? { ...d, r: Math.min(run.city.buildings[m.bid].w, run.city.buildings[m.bid].h) * TILE * 0.5 } : d, bid: m.bid,
       x: m.x, y: m.y, hp, maxHp: hp, kx: 0, ky: 0, flash: 0, ph: rand(), dead: false, elite, fromHive: !!m.fromHive,
       dmgMul: elite ? ELITE.dmg : 1, spdMul: elite ? ELITE.speed : 1,
-      shootT: (d.shootEvery || d.burstEvery || d.lobEvery || 0) * (0.5 + rand() * 0.5),
+      shootT: (d.shootEvery || d.burstEvery || d.lobEvery || d.snipe?.every || d.bomb?.every || 0) * (0.5 + rand() * 0.5),
       barT: (d.barrageEvery || 0) * 0.6, depT: (d.deployEvery || 0) * 0.5, burn: 0,
     });
   }
@@ -391,6 +391,14 @@ export function update(run, dt, move) {
           } else { G.mode = "orbit"; G.t = D.every; G.ang = Math.atan2(e.y - p.y, e.x - p.x); }
         }
       }
+    } else if (d.bomb) {   // Firebomber: can't turn tightly, so it sweeps over the mech and comes around again
+      const want = Math.atan2(dy, dx); e.head = e.head ?? want;
+      e.head += clamp(wrapAngle(want - e.head), -d.bomb.turn * dt, d.bomb.turn * dt);
+      mx = Math.cos(e.head); my = Math.sin(e.head);
+      if ((e.shootT -= dt) <= 0 && dist < d.bomb.near && !(e.stunT > 0)) {   // the canister lands a little ahead, on its own path
+        e.shootT = d.bomb.every;
+        lob(run, e.x, e.y - FLY_ALT, e.x + mx * d.bomb.lead, e.y + my * d.bomb.lead, d.bomb.shell, e.dmgMul, "firebomber canister");
+      }
     } else if (d.flying) { /* straight at the mech, over everything */ }
     else if (lobber && dist < d.keepAway) { mx *= -0.6; my *= -0.6; }            // artillery backs off...
     else if (lobber && dist < d.keepAway * 1.3) { mx = 0; my = 0; }                // ...and holds at range
@@ -398,6 +406,45 @@ export function update(run, dt, move) {
     else if (dist > 36) {   // follow the flow field (heavies use theirs, which goes through buildings)
       const st = steer(isHeavy(e) ? run.heavyField : run.field, e.x, e.y);
       if (st) { const sx = st.x - e.x, sy = st.y - e.y, sl = Math.hypot(sx, sy) || 1; mx = sx / sl; my = sy / sl; }
+    }
+    if (d.charge) {   // Charger: stops, paints its lane, dashes down it, then stalls for a beat
+      const C = d.charge;
+      if (e.dashT > 0) {
+        mx = (Math.cos(e.chargeAim) * C.speed) / d.speed; my = (Math.sin(e.chargeAim) * C.speed) / d.speed;
+        if (rand() < dt * 40) run.parts.push({ x: e.x, y: e.y + d.r, vx: -mx * 4, vy: -my * 4 - 6, t: 0.35, max: 0.35, color: "#8c867c", size: 2, steam: true });
+        if ((e.dashT -= dt) <= 0) { e.chargeAim = null; e.stunT = Math.max(e.stunT || 0, C.recover); }
+      } else if (e.chargeWarn > 0) {
+        mx = 0; my = 0;
+        if ((e.chargeWarn -= dt) <= 0) { e.dashT = C.len / C.speed; run.events.push({ type: "dash" }); }
+      } else if ((e.chargeT = (e.chargeT ?? C.every * C.first * (0.5 + rand())) - dt) <= 0 && dist < C.range && dist > 28 && !(e.stunT > 0) && clearLine(city, e.x, e.y, p.x, p.y)) {
+        e.chargeT = C.every; e.chargeAim = Math.atan2(dy, dx); e.chargeWarn = C.warn;
+        run.events.push({ type: "chargeUp", dur: C.warn });
+      }
+    }
+    if (d.shield) {   // Shield Drone: the plate turns toward the mech, but slowly
+      const want = Math.atan2(dy, dx); e.face = e.face ?? want;
+      if (!(e.stunT > 0)) e.face += clamp(wrapAngle(want - e.face), -d.shield.turn * dt, d.shield.turn * dt);
+      if (e.blockT > 0) e.blockT -= dt;
+    }
+    if (d.snipe) {   // Marksman: the line follows the mech, locks for the last beat, then fires along it (buildings stop it)
+      const S = d.snipe;
+      if (e.snipeWarn > 0) {
+        mx = 0; my = 0;
+        if (e.snipeWarn > S.lock) e.snipeAim = Math.atan2(dy, dx);
+        const ca = Math.cos(e.snipeAim), sa = Math.sin(e.snipeAim);
+        let len = 8; while (len < S.range && !solidAt(city, e.x + ca * len, e.y + sa * len)) len += 4;
+        e.snipeLen = len;
+        if ((e.snipeWarn -= dt) <= 0) {
+          const along = dx * ca + dy * sa, R = run.chassis.radius;
+          if (along > 0 && along < len + R && Math.abs(dx * sa - dy * ca) < S.width / 2 + R) hurtPlayer(run, S.dmg * waveDmgMul(run.wave) * e.dmgMul, "sniper shot");
+          run.fx.push({ type: "snipe", x: e.x, y: e.y, a: e.snipeAim, len, t: 0.22, max: 0.22 });
+          run.events.push({ type: "snipe" });
+          e.snipeAim = null;
+        }
+      } else if ((e.shootT -= dt) <= 0 && dist < S.range && !(e.stunT > 0) && clearLine(city, e.x, e.y, p.x, p.y)) {
+        e.shootT = S.every; e.snipeWarn = S.warn; e.snipeAim = Math.atan2(dy, dx); e.snipeLen = 8;
+        run.events.push({ type: "snipeAim", dur: S.warn });
+      }
     }
     if (d.blast) {   // sapper: arm when close, stop, and go off
       if (!e.fuse && dist < d.r + run.chassis.radius + 6) { e.fuse = d.blast.fuse; run.events.push({ type: "fuse" }); }
@@ -486,7 +533,8 @@ export function update(run, dt, move) {
         const d = Math.hypot(dx, dy) || 1, knock = RAM.knock * (s.ram ? 1 : 0.5);
         credit = "ramming"; hitEnemy(run, e, RAM.enemy * stomp * (p.moving ? 1 : 0.5) * (1 + 0.3 * run.wave), (-dx / d) * knock, (-dy / d) * knock);
       }
-      if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul, "contact " + e.type);
+      if (e.dashT > 0) hurtPlayer(run, e.d.charge.dmg * waveDmgMul(run.wave) * e.dmgMul, "charger dash");
+      else if (e.d.dmg > 0) hurtPlayer(run, e.d.dmg * waveDmgMul(run.wave) * e.dmgMul, "contact " + e.type);
     }
   }
   // buildings on fire burn down (on whoever lit them)
@@ -685,7 +733,7 @@ export function update(run, dt, move) {
     });
     if (hit) {
       const sp = Math.hypot(sh.vx, sh.vy);
-      credit = sh.src || "autocannon"; hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30); proc(run, hit, sh.dmg, "ballistic");
+      credit = sh.src || "autocannon"; hitDir = Math.atan2(sh.vy, sh.vx); hitEnemy(run, hit, sh.dmg, (sh.vx / sp) * 30, (sh.vy / sp) * 30); hitDir = null; proc(run, hit, sh.dmg, "ballistic");
       if (s.pierce && (sh.pierced || 0) < 3 && rand() < s.pierce) { sh.pierced = (sh.pierced || 0) + 1; sh.through = hit; }   // AP Rounds: it keeps going
       else sh.life = 0;
       run.fx.push({ type: "impact", x: sh.x, y: sh.y - (sh.h ?? 4), t: 0.07, max: 0.07 });
@@ -721,9 +769,10 @@ export function update(run, dt, move) {
     pl.t -= dt;
     near(pl.x, pl.y, pl.r + 16, (e) => {   // whatever stands (or hovers low) in it keeps burning
       if (e.dead || (e.d.flying && altOf(e) > 12) || Math.hypot(e.x - pl.x, (e.y - pl.y) * 1.4) > pl.r + e.d.r * 0.5) return;
-      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps); e.burnSrc = "napalm";
+      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps); e.burnSrc = pl.hostile ? "friendly fire" : "napalm";
     });
-    if ((pl.tick -= dt) <= 0) {   // and it catches the buildings it touches
+    if (pl.hostile && (pl.hurtT -= dt) <= 0 && Math.hypot(p.x - pl.x, (p.y - pl.y) * 1.4) < pl.r + 2) { pl.hurtT = 0.4; hurtPlayer(run, pl.hostile * 0.4, "burning ground"); }
+    if (pl.bb && (pl.tick -= dt) <= 0) {   // and it catches the buildings it touches
       pl.tick = 0.5;
       for (const b of run.city.buildings) {
         if (b.dead) continue;
@@ -740,6 +789,10 @@ export function update(run, dt, move) {
     if ((sh.t += dt) < sh.dur) continue;
     sh.done = true;
     blastAt(run, sh.tx, sh.ty, sh.r, { player: sh.dmg * waveDmgMul(run.wave) * sh.mul, building: sh.building, src: sh.src });
+    if (sh.pool) {   // a firebomb: leaves burning ground that hurts the mech (and anything else standing in it)
+      run.pools.push({ x: sh.tx, y: sh.ty, r: sh.pool.radius, t: sh.pool.dur, max: sh.pool.dur, dps: sh.pool.enemyDps, bb: 0, tick: 0, seed: rand(), hostile: sh.pool.dps * waveDmgMul(run.wave) * sh.mul, hurtT: 0 });
+      run.events.push({ type: "napalm" });
+    }
   }
   run.shells = run.shells.filter((sh) => !sh.done);
   blame = "you";
@@ -864,7 +917,7 @@ function hitStop(run, secs) {
 /** Lob an artillery shell from (x0,y0) to land at (tx,ty) */
 function lob(run, x0, y0, tx, ty, shell, mul, src) {
   if (solidAt(run.city, tx, ty)) { tx = run.player.x; ty = run.player.y; }
-  run.shells.push({ x0, y0, tx, ty, t: 0, dur: shell.flight, r: shell.radius, dmg: shell.dmg, building: shell.building, mul, src });
+  run.shells.push({ x0, y0, tx, ty, t: 0, dur: shell.flight, r: shell.radius, dmg: shell.dmg, building: shell.building, mul, src, pool: shell.pool });
   run.events.push({ type: "lob", dur: shell.flight });
 }
 
@@ -1095,7 +1148,9 @@ function discharge(run, w, aim, pl) {
     return;
   }
   const bestA = aim ?? p.aim, ex = p.x + Math.cos(bestA) * range, ey = p.y + Math.sin(bestA) * range;
+  hitDir = bestA;   // a beam comes from the mech: a Shield Drone facing it turns most of it
   for (const e of beamHits(run, bestA, range, def.width)) { hitEnemy(run, e, dmg, Math.cos(bestA) * 60, Math.sin(bestA) * 60); proc(run, e, dmg, "energy"); }
+  hitDir = null;
   // beams pierce cover, cutting into every building on the line
   const cut = new Set();
   traverse(p.x, p.y, ex, ey, (tx, ty) => { const id = tx >= 0 && ty >= 0 && tx < TCOLS && ty < TROWS ? run.city.bid[ty * TCOLS + tx] : -1; if (id >= 0) cut.add(id); return false; });
@@ -1144,8 +1199,18 @@ function proc(run, e, dmg, fam) {
   }
 }
 
+// The direction a hit is travelling (rounds, beams), or null for blast, fire, melee and ramming: only directed
+// hits can be stopped by a Shield Drone's plate.
+let hitDir = null;
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.dead) return;
+  if (e.d.shield && hitDir != null && e.face != null && Math.abs(wrapAngle(hitDir + Math.PI - e.face)) < e.d.shield.arc) {   // on the plate
+    dmg *= 1 - e.d.shield.block; kx = 0; ky = 0; e.blockT = 0.12;
+    run.events.push({ type: "tink" });
+    const a = e.face + (run.rand() - 0.5) * 1.6;
+    run.parts.push({ x: e.x + Math.cos(e.face) * 6, y: e.y + Math.sin(e.face) * 6 - 3, vx: Math.cos(a) * 50, vy: Math.sin(a) * 50, t: 0.2, max: 0.2, color: "#dff3ff", size: 1, spark: true });
+  }
   const applied = Math.min(dmg, Math.max(0, e.hp));
   run.m.dealt += applied; run.m.dmgBy[credit] = (run.m.dmgBy[credit] || 0) + applied;
   e.hp -= dmg; e.flash = quiet ? Math.max(e.flash, 0.03) : 0.08;

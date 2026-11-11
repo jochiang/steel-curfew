@@ -7,12 +7,18 @@
 import { newRun, update, nextWave, blocked, buy, reroll, rerollCost, choosePerk, weaponDmg } from "../src/game.js";
 import { botMove } from "../src/bot.js";
 import { WEAPONS, MODULES, CHASSIS, WAVES, HARDPOINT, ENEMIES, PERKS, SHOP } from "../src/content.js";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const SEEDS = +(args.find((a) => /^\d+$/.test(a)) || 6);
 const jsonOut = args.includes("--json") ? args[args.indexOf("--json") + 1] : null;
 const STEP = 1 / 60;
+// --spender: the bot keeps rerolling and buying while it has salvage (closer to a human with a good build; the
+// default bot shops once and banks the rest). --frames a,b: only these frames. --from a.json,b.json: skip the
+// runs and report on saved results (run one process per frame with --json, then merge).
+const SPENDER = args.includes("--spender");
+const ONLY = args.includes("--frames") ? args[args.indexOf("--frames") + 1].split(",") : null;
+const FROM = args.includes("--from") ? args[args.indexOf("--from") + 1].split(",") : null;
 
 // --proposal: try tuning changes in memory, without touching the game files. Put the changes to
 // test here (e.g. ENEMIES.mortar.shell.dmg = 10), run with and without, compare.
@@ -41,10 +47,10 @@ function score(run, o, fam) {
 }
 function shop(run, fam) {
   let rerolls = 0;
-  for (let guard = 0; guard < 12; guard++) {
+  for (let guard = 0; guard < (SPENDER ? 80 : 12); guard++) {
     const opts = run.shop.offers.map((o, i) => [o, i]).filter(([o]) => !blocked(run, o)).map(([o, i]) => [score(run, o, fam), i]).sort((a, b) => b[0] - a[0]);
     if (opts.length && opts[0][0] >= 1.4) { buy(run, opts[0][1]); continue; }
-    if (rerolls < 1 && run.salvage >= rerollCost(run) + 25) { reroll(run); rerolls++; continue; }
+    if (rerolls < (SPENDER ? 12 : 1) && run.salvage >= rerollCost(run) + 25) { reroll(run); rerolls++; continue; }
     break;
   }
 }
@@ -90,8 +96,9 @@ function play(chassis, start, seed) {
 }
 
 // ---------------------------------------------------------------- run the matrix
-const results = [];
-for (const [ck, ch] of Object.entries(CHASSIS)) {
+const results = FROM ? FROM.flatMap((f) => JSON.parse(readFileSync(f, "utf8"))) : [];
+for (const [ck, ch] of FROM ? [] : Object.entries(CHASSIS)) {
+  if (ONLY && !ONLY.includes(ck)) continue;
   const fams = ["ballistic", "energy", "melee"].filter((f) => ch.hardpoints.some((h) => h === "U" || HARDPOINT[h] === f));
   for (const fam of fams) for (let i = 0; i < SEEDS; i++) results.push({ chassis: ck, fam, seed: 500 + i, rows: play(ck, FAMILY_START[fam], 500 + i) });
 }

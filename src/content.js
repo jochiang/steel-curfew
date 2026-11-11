@@ -172,6 +172,20 @@ export const ENEMIES = {
   sapper:  { name: "Sapper",      hp: 12, speed: 58, dmg: 0,  r: 5,  salvage: 2, color: "#e8c547",
              blast: { radius: 22, dmg: 13, enemyDmg: 30, building: 120, fuse: 0.35 } },
   wasp:    { name: "Wasp",        hp: 8,  speed: 66, dmg: 5,  r: 4,  salvage: 1, color: "#6fbfb0", flying: true },
+  // Later districts bring new threats rather than tougher copies (user, 2026-11-10: "tanky identical enemies feel bad ...
+  // it typically will feel better if you're encountering new types or higher density or different attack patterns").
+  // Midtown: Charger (paints a lane, dashes down it, then stalls: step aside and punish it) and Shield Drone (a plate
+  // that turns slowly toward you and stops rounds and beams from the front: get around it, or use blast, fire, melee).
+  charger: { name: "Charger",     hp: 30, speed: 32, dmg: 7,  r: 7,  salvage: 3, color: "#c4bea0", mass: 2,
+             charge: { every: 4.2, first: 0.25, range: 140, warn: 0.7, speed: 250, len: 150, width: 14, dmg: 15, recover: 0.9 } },
+  shield:  { name: "Shield Drone", hp: 24, speed: 34, dmg: 8, r: 5,  salvage: 3, color: "#7a8aa0",
+             shield: { arc: 1.0, block: 0.85, turn: 1.3 } },
+  // The Spire: Marksman (hangs back, an aiming line follows you and then locks: break the line or get behind a building)
+  // and Firebomber (a flyer that can't turn tightly; it drops fire on its way over, taking ground away)
+  sniper:  { name: "Marksman",    hp: 16, speed: 30, dmg: 4,  r: 5,  salvage: 3, color: "#6a7fbf", maxAlive: 3,
+             keepAway: 160, snipe: { every: 4.5, warn: 1.1, lock: 0.4, range: 280, width: 4, dmg: 15 } },
+  bomber:  { name: "Firebomber",  hp: 14, speed: 62, dmg: 0,  r: 6,  salvage: 3, color: "#857d88", flying: true, alt: 16, maxAlive: 4,
+             bomb: { every: 2.6, near: 70, turn: 2.0, lead: 30, shell: { flight: 0.55, radius: 13, dmg: 4, building: 0, pool: { radius: 15, dur: 4, dps: 7, enemyDps: 6 } } } },
   siege:   { name: "Siege Walker", hp: 590, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
              keepAway: 90, barrageEvery: 5, barrage: 5, deployEvery: 8, deploy: 3, shell: { flight: 1.5, radius: 24, dmg: 16, building: 60 } },
   gunship: { name: "Gunship",     hp: 440, speed: 82, dmg: 0, r: 14, salvage: 45, color: "#5a6878", mass: 20, boss: true, flying: true, alt: 20,
@@ -200,13 +214,16 @@ const BASE = [
   { duration: 45, interval: 1.5, group: 4, pool: [["drone", 4], ["skitter", 2], ["brute", 1], ["spitter", 1], ["mortar", 1], ["sapper", 1], ["wasp", 1]], boss: ["crusher", "siege", "gunship", "hive"] },
 ];
 // Later districts: the full roster is out from the first wave (pools run two waves ahead), waves last a little
-// longer and spawn a little faster. Most of the climb comes from waveHpMul / waveDmgMul, not from enemy counts
-// (phones, and the 260 cap). `ease` thins the first waves of a district: a breather after the boss.
-export const LATER = { duration: 5, spawns: 0.12, ease: [1.5, 1.25, 1.1, 1, 1] };
+// longer and spawn faster (density), and each district brings its own new types (`adds`: [type, weight, from which
+// wave of the district]). `ease` thins the first waves of a district: a breather after the boss. The last wave of
+// the run has two bosses, each at `finaleHp` of a boss's health.
+export const LATER = { duration: 5, spawns: 0.35, ease: [1.2, 1.1, 1, 1, 1], finaleHp: 0.7,
+  adds: [[], [["charger", 1.5, 0], ["shield", 1.5, 1]], [["sniper", 1.2, 0], ["bomber", 1.2, 1], ["charger", 1, 0], ["shield", 1, 0]]] };
 export const WAVES = DISTRICTS.flatMap((_, d) => BASE.map((b, i) => (d === 0 ? b : {
   ...b, duration: b.duration + LATER.duration * d,
   interval: +((b.interval * LATER.ease[i]) / (1 + LATER.spawns * d)).toFixed(2),
-  pool: BASE[Math.min(BASE.length - 1, i + 2)].pool,
+  pool: [...BASE[Math.min(BASE.length - 1, i + 2)].pool, ...LATER.adds[d].filter((a) => i >= a[2]).map(([k, w]) => [k, w])],
+  ...(b.boss && d === DISTRICTS.length - 1 ? { bossCount: 2, bossHp: LATER.finaleHp } : {}),
 })));
 export const districtOf = (w) => Math.min(DISTRICTS.length - 1, Math.floor(w / DISTRICT_WAVES));   // w is 0-based
 /** Does wave w open a new district (a fresh city)? Never past curfew: the last district is where you stay out. */
