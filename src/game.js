@@ -430,7 +430,7 @@ export function update(run, dt, move) {
       const S = d.snipe;
       if (e.snipeWarn > 0) {
         mx = 0; my = 0;
-        if (e.snipeWarn > S.lock) e.snipeAim = Math.atan2(dy, dx);
+        if (e.snipeWarn > S.lock) e.snipeAim += clamp(wrapAngle(Math.atan2(dy, dx) - e.snipeAim), -S.track * dt, S.track * dt);   // the line swings after the mech at a limited rate: strafing can outrun it
         const ca = Math.cos(e.snipeAim), sa = Math.sin(e.snipeAim);
         let len = 8; while (len < S.range && !solidAt(city, e.x + ca * len, e.y + sa * len)) len += 4;
         e.snipeLen = len;

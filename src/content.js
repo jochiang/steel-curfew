@@ -183,7 +183,7 @@ export const ENEMIES = {
   // The Spire: Marksman (hangs back, an aiming line follows you and then locks: break the line or get behind a building)
   // and Firebomber (a flyer that can't turn tightly; it drops fire on its way over, taking ground away)
   sniper:  { name: "Marksman",    hp: 16, speed: 30, dmg: 4,  r: 5,  salvage: 3, color: "#6a7fbf", maxAlive: 3,
-             keepAway: 160, snipe: { every: 4.5, warn: 1.1, lock: 0.4, range: 280, width: 4, dmg: 15 } },
+             keepAway: 160, snipe: { every: 4.5, warn: 1.1, lock: 0.4, track: 0.35, range: 280, width: 4, dmg: 15 } },
   bomber:  { name: "Firebomber",  hp: 14, speed: 62, dmg: 0,  r: 6,  salvage: 3, color: "#857d88", flying: true, alt: 16, maxAlive: 4,
              bomb: { every: 2.6, near: 70, turn: 2.0, lead: 30, shell: { flight: 0.55, radius: 13, dmg: 4, building: 0, pool: { radius: 15, dur: 4, dps: 7, enemyDps: 6 } } } },
   siege:   { name: "Siege Walker", hp: 590, speed: 22, dmg: 20, r: 14, salvage: 45, color: "#a8927e", mass: 20, crush: 200, boss: true,
