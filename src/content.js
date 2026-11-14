@@ -33,7 +33,7 @@ export const CHASSIS = {
   tempest: {
     name: "Tempest", cls: "Assault", blurb: "An energy platform built around its capacitor.",
     hp: 70, armor: 1, speed: 72, capacity: 75, radius: 9,
-    hardpoints: ["E", "E", "E", "B", "U"], stomp: 0.5, fx: { fillMul: -0.3, volleyBounty: 0.25 }, quirk: "Capacitor charges 30% faster. Volley bounty: multi-kills may drop extra salvage",
+    hardpoints: ["E", "E", "E", "B", "U"], stomp: 0.5, fx: { fillMul: -0.3, ventMul: -0.3, volleyBounty: 0.25 }, quirk: "Capacitor charges and vents 30% faster. Volley bounty: multi-kills may drop extra salvage",
     mounts: [[-8, -2], [8, -2], [-7, -9], [7, -9], [0, -14]],
   },
 };
