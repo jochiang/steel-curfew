@@ -128,8 +128,8 @@ export function generateCity(seed, layout = "classic") {
     const roll = rand();
     if (!hitsPlaza(r) && roll < 0.22 && (right || down)) {
       const overCanal = i + 1 === canal;   // never merge across the water
-      const horiz = right && !overCanal && (!down || rand() < 0.5), o = horiz ? rectOf(i + 1, j) : rectOf(i, j + 1);
-      if (!hitsPlaza(o) && (horiz || down)) {
+      const horiz = right && !overCanal && (!down || rand() < 0.5), o = horiz ? rectOf(i + 1, j) : down ? rectOf(i, j + 1) : null;
+      if (o && !hitsPlaza(o)) {
         used.add(horiz ? i + 1 + "," + j : i + "," + (j + 1));
         const m = [Math.min(r[0], o[0]), Math.min(r[1], o[1]), Math.max(r[2], o[2]), Math.max(r[3], o[3])];
         for (let y = m[1]; y <= m[3]; y++) for (let x = m[0]; x <= m[2]; x++) roadDir[idx(x, y)] = 0;   // the street between goes
