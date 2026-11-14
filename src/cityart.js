@@ -23,7 +23,8 @@ export function paintWet(city) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const kind = city.ground[((y / TILE) | 0) * COLS + ((x / TILE) | 0)];
     let v = 0;
-    if (kind !== G.GRASS && kind !== G.EDGE) {
+    if (kind === G.DEEP || kind === G.POOL) v = 1;   // open water is a mirror
+    else if (kind !== G.GRASS && kind !== G.EDGE) {
       const road = kind === G.ROAD || kind === G.LOT;
       const n = noise(x / 17, y / 10, 11) * 0.65 + noise(x / 6, y / 3.5, 23) * 0.35;
       v = n > (road ? 0.56 : 0.66) ? 1 : n > (road ? 0.52 : 0.63) ? 0.75 : road ? 0.5 : 0.4;
@@ -69,6 +70,29 @@ export function paintGround(city) {
         if (rand() < 0.25) px(g, rand() < 0.5 ? "#c9b45a" : "#b0647a", x + ((rand() * (TILE - 2)) | 0), y + ((rand() * (TILE - 2)) | 0));
         break;
       }
+      case G.DEEP: {   // harbour and canal water: dark, with short wave strokes
+        px(g, "#12303f", x, y, TILE, TILE);
+        for (let i = 0; i < 4; i++) px(g, rand() < 0.5 ? "#1b4558" : "#0d2531", x + ((rand() * (TILE - 3)) | 0), y + ((rand() * TILE) | 0), 3 + ((rand() * 2) | 0), 1);
+        if (rand() < 0.18) px(g, "#3f7f93", x + ((rand() * (TILE - 4)) | 0), y + ((rand() * TILE) | 0), 3, 1);
+        break;
+      }
+      case G.POOL: {   // the reflecting pool: shallow, still and pale
+        px(g, "#2f6f7c", x, y, TILE, TILE);
+        for (let i = 0; i < 2; i++) px(g, "#3d8794", x + ((rand() * (TILE - 5)) | 0), y + ((rand() * TILE) | 0), 5, 1);
+        if (rand() < 0.3) px(g, "#8fd0d6", x + ((rand() * (TILE - 2)) | 0), y + ((rand() * TILE) | 0), 2, 1);
+        break;
+      }
+      case G.BRIDGE: {   // a road deck over the water
+        px(g, "#2b2d34", x, y, TILE, TILE);
+        for (let i = 0; i < 3; i++) px(g, "#33363e", x, y + 2 + i * 4, TILE, 1);
+        break;
+      }
+      case G.PIER: {   // timber planking
+        px(g, "#5b4a37", x, y, TILE, TILE);
+        for (let i = 0; i < TILE; i += 3) px(g, "#46382a", x, y + i, TILE, 1);
+        if (rand() < 0.4) px(g, "#6b5843", x + ((rand() * (TILE - 4)) | 0), y + 1 + 3 * ((rand() * 4) | 0), 4, 2);
+        break;
+      }
       case G.ALLEY: {
         px(g, "#1c1d22", x, y, TILE, TILE);
         for (let i = 0; i < 6; i++) px(g, rand() < 0.5 ? "#23242a" : "#17181c", x + ((rand() * TILE) | 0), y + ((rand() * TILE) | 0), 2, 1);
@@ -79,6 +103,23 @@ export function paintGround(city) {
         for (let i = 0; i < TILE; i++) px(g, Math.floor((x + y + i) / 4) % 2 ? "#d9a53a" : "#1d1a14", x + i, y + 4, 1, 4);
         px(g, "#3a3d45", x, y + 1, TILE, 2); px(g, "#16171b", x, y + TILE - 3, TILE, 2);
       }
+    }
+    // water edges: the bank casts onto the water along its north side (a quay wall, in this 3/4 view), with a pale
+    // coping stone around a pool; decks and piers get a rail on the sides that face water
+    if (kind === G.DEEP || kind === G.POOL) {
+      const land = (k) => k !== G.DEEP && k !== G.POOL;
+      const pool = kind === G.POOL, wall = pool ? "#1d4a55" : "#07161d", lip = pool ? "#a9b3b0" : "#4a4e57";
+      if (land(at(tx, ty - 1))) { px(g, wall, x, y, TILE, pool ? 2 : 4); px(g, lip, x, y - 1, TILE, 1); }
+      if (land(at(tx - 1, ty))) { px(g, wall, x, y, 1, TILE); px(g, lip, x - 1, y, 1, TILE); }
+      if (land(at(tx + 1, ty))) { px(g, wall, x + TILE - 1, y, 1, TILE); px(g, lip, x + TILE, y, 1, TILE); }
+      if (land(at(tx, ty + 1))) px(g, lip, x, y + TILE, TILE, 1);
+    }
+    if (kind === G.BRIDGE || kind === G.PIER) {
+      const rail = kind === G.BRIDGE ? "#6a6f7a" : "#2e2419", wet = (k) => k === G.DEEP || k === G.POOL;
+      if (wet(at(tx, ty - 1))) px(g, rail, x, y, TILE, 2);
+      if (wet(at(tx, ty + 1))) { px(g, rail, x, y + TILE - 2, TILE, 2); px(g, "#07161d", x, y + TILE, TILE, 3); }
+      if (wet(at(tx - 1, ty))) px(g, rail, x, y, 2, TILE);
+      if (wet(at(tx + 1, ty))) px(g, rail, x + TILE - 2, y, 2, TILE);
     }
     // curb where sidewalk meets road: light lip on the sidewalk, dark gutter on the road
     if (kind === G.SIDEWALK) {
