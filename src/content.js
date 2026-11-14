@@ -217,7 +217,7 @@ const BASE = [
 // longer and spawn faster (density), and each district brings its own new types (`adds`: [type, weight, from which
 // wave of the district]). `ease` thins the first waves of a district: a breather after the boss. The last wave of
 // the run has two bosses, each at `finaleHp` of a boss's health.
-export const LATER = { duration: 5, spawns: 0.35, ease: [1.2, 1.1, 1, 1, 1], finaleHp: 0.7,
+export const LATER = { duration: 5, spawns: 0.35, ease: [1.2, 0.92, 0.83, 0.83, 0.83], finaleHp: 0.7,
   adds: [[], [["charger", 1.5, 0], ["shield", 1.5, 1]], [["sniper", 1.2, 0], ["bomber", 1.2, 1], ["charger", 1, 0], ["shield", 1, 0]]] };
 export const WAVES = DISTRICTS.flatMap((_, d) => BASE.map((b, i) => (d === 0 ? b : {
   ...b, duration: b.duration + LATER.duration * d,
