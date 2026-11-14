@@ -217,7 +217,7 @@ const BASE = [
 // longer and spawn faster (density), and each district brings its own new types (`adds`: [type, weight, from which
 // wave of the district]). `ease` thins the first waves of a district: a breather after the boss. The last wave of
 // the run has two bosses, each at `finaleHp` of a boss's health.
-export const LATER = { duration: 5, spawns: 0.35, ease: [1.2, 0.92, 0.83, 0.83, 0.83], finaleHp: 0.7,
+export const LATER = { duration: 5, spawns: 0.35, ease: [1.2, 0.92, 0.83, 0.83, 0.83], finaleHp: 1,
   adds: [[], [["charger", 1.5, 0], ["shield", 1.5, 1]], [["sniper", 1.2, 0], ["bomber", 1.2, 1], ["charger", 1, 0], ["shield", 1, 0]]] };
 export const WAVES = DISTRICTS.flatMap((_, d) => BASE.map((b, i) => (d === 0 ? b : {
   ...b, duration: b.duration + LATER.duration * d,
@@ -230,7 +230,7 @@ export const districtOf = (w) => Math.min(DISTRICTS.length - 1, Math.floor(w / D
 export const opensDistrict = (w) => w > 0 && w < WAVES.length && w % DISTRICT_WAVES === 0;
 // Past curfew (endless, optional after the last boss): each wave past the table is the last one,
 // with enemy HP x1.2 and spawns x1.1 compounding, and a boss every 3rd wave (both bosses from +9).
-export const CURFEW = { hp: 1.2, spawns: 1.1, bossEvery: 3, twoBossesFrom: 9 };
+export const CURFEW = { hp: 1.2, spawns: 1.1, bossEvery: 3, twoBossesFrom: 9, bossHp: 0.7 };
 export const pastCurfew = (w) => Math.max(0, w - WAVES.length + 1);   // 0 during the normal waves, then 1, 2, ...
 export function waveDef(w) {
   const k = pastCurfew(w);
@@ -239,7 +239,7 @@ export function waveDef(w) {
   return {
     ...last, interval: last.interval / CURFEW.spawns ** k,
     boss: bossWave ? last.boss : null,   // a different one from the last boss (see the spawn in game.js)
-    bossCount: bossWave && k >= CURFEW.twoBossesFrom ? 2 : 1,
+    bossCount: bossWave && k >= CURFEW.twoBossesFrom ? 2 : 1, bossHp: CURFEW.bossHp,
   };
 }
 export const waveHpMul = (w) => (pastCurfew(w) ? (1 + 0.25 * (WAVES.length - 1)) * CURFEW.hp ** pastCurfew(w) : 1 + 0.25 * w);   // w is 0-based
