@@ -300,6 +300,7 @@ const FX_TEXT = {
   rangeMul: (v) => `${pct(v)} weapon range`, reloadMul: (v) => `${pct(v)} reload time`, fillMul: (v) => `${pct(v)} capacitor charge time`,
   ventMul: (v) => `${pct(v)} vent time`, pickup: (v) => `+${v} salvage pickup range`, dodge: (v) => `${pct(v)} glance chance`,
   capacity: (v) => `+${v} t tonnage capacity`,
+  reloadSpd: (v) => `${pct(v)} reload speed`, fillSpd: (v) => `${pct(v)} capacitor charge speed`, ventSpd: (v) => `${pct(v)} vent speed`,
 };
 export const fxText = (fx) => Object.entries(fx).map(([k, v]) => (FX_TEXT[k] ? FX_TEXT[k](v) : `${k} ${v}`)).join(", ");
 

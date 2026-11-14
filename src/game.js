@@ -88,20 +88,22 @@ function addWeapon(run, key, tier) {
   run.weapons.push({ key, tier, cd: 0, mag: WEAPONS[key].mag || 0, reloadT: 0 });
 }
 
-// Where a stat stops: chances at 100% (glancing at 60%), time cuts at 70% off (the 0.3 floors below).
+// Where a stat stops: chances at 100% (glancing at 60%). Reload, charge and vent speed have no cap (see timeMul).
 const STAT_CAP = { dodge: 0.6, energyIgnite: 1, energyArc: 1, ballisticIgnite: 1, pierce: 1 };
-const STAT_FLOOR = { reloadMul: -0.7, fillMul: -0.7, ventMul: -0.7 };
 const EPS = 1e-6;
 /** Would another copy of this module add nothing? True when every stat it gives is already at its limit. */
 export function moduleSpent(run, key) {
   const s = run.stats;
-  return Object.keys(MODULES[key].fx).every((k) => (k in STAT_CAP && s[k] >= STAT_CAP[k] - EPS) || (k in STAT_FLOOR && s[k] <= STAT_FLOOR[k] + EPS));
+  return Object.keys(MODULES[key].fx).every((k) => k in STAT_CAP && s[k] >= STAT_CAP[k] - EPS);
 }
+
+/** Reload / charge / vent time as a share of the base: a frame's direct cut (`xMul`, floored), divided by stacked speed (`xSpd`). */
+export const timeMul = (s, k) => Math.max(0.3, 1 + s[k + "Mul"]) / (1 + s[k + "Spd"]);
 
 export function recompute(run) {
   const s = {
     maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
-    rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
+    rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, reloadSpd: 0, fillSpd: 0, ventSpd: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
     dodge: 0, ram: 0, capacity: 0, energyIgnite: 0, energyArc: 0, ballisticIgnite: 0, pierce: 0,
     bonusSalvage: 0, discount: 0, freeReroll: 0, volleyBounty: 0,   // frame signatures (Kestrel, Warden, Tempest)
   };
@@ -262,8 +264,8 @@ export function capTimes(run) {
   if (!en.length) return null;
   const heat = en.reduce((t, w) => t + WEAPONS[w.key].heat, 0);
   return {
-    fill: (HEAT.baseFill + HEAT.perExtraFill * (en.length - 1)) * Math.max(0.3, 1 + run.stats.fillMul),
-    vent: (HEAT.baseVent + HEAT.ventPerHeat * heat) * Math.max(0.3, 1 + run.stats.ventMul),
+    fill: (HEAT.baseFill + HEAT.perExtraFill * (en.length - 1)) * timeMul(run.stats, "fill"),
+    vent: (HEAT.baseVent + HEAT.ventPerHeat * heat) * timeMul(run.stats, "vent"),
   };
 }
 export const weaponsOffline = (run) =>
@@ -591,7 +593,7 @@ export function update(run, dt, move) {
         run.events.push({ type: "napalmLaunch" });
         run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
         w.kick = 2.5; w.aim = a0; w.cd = def.interval;
-        if (--w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
+        if (--w.mag <= 0) { w.reloadT = def.reload * timeMul(s, "reload"); run.events.push({ type: "reload" }); }
         continue;
       }
       if (def.missile) {   // missiles ignore cover: they arc over it
@@ -604,7 +606,7 @@ export function update(run, dt, move) {
         run.fx.push({ type: "launch", x: m.x, y: m.y, a: a0, t: 0.25, max: 0.25 });
         w.kick = 2; w.aim = a0;
         w.cd = def.interval;
-        if (--w.mag <= 0) w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul);
+        if (--w.mag <= 0) w.reloadT = def.reload * timeMul(s, "reload");
         continue;
       }
       const t = sightedEnemy(run, def.range * (1 + s.rangeMul));
@@ -630,7 +632,7 @@ export function update(run, dt, move) {
       run.shake = Math.max(run.shake, flak ? 2.4 : 0.7);
       run.events.push({ type: flak ? "flak" : "shot" });
       w.cd = def.rotary ? def.interval + (def.rotary.fast - def.interval) * (w.spin || 0) ** 1.5 : def.interval;
-      if (!def.rotary && --w.mag <= 0) { w.reloadT = def.reload * Math.max(0.3, 1 + s.reloadMul); run.events.push({ type: "reload" }); }
+      if (!def.rotary && --w.mag <= 0) { w.reloadT = def.reload * timeMul(s, "reload"); run.events.push({ type: "reload" }); }
     } else if (def.family === "melee") {
       if (offline || w.cd > 0) continue;
       const reach = def.reach * (1 + s.rangeMul) + run.chassis.radius;

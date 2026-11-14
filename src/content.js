@@ -135,15 +135,16 @@ export const WEAPONS = {
 };
 
 // Stat keys: maxHp, armor, regen, speedMul, dmgBallistic, dmgEnergy, dmgMelee, rangeMul,
-// reloadMul, fillMul, ventMul, pickup, ventSpeed, ventBurst, isolatedLoops, dodge, ram
+// reloadSpd, fillSpd, ventSpd (speed bonuses: time = base / (1 + bonus), so every copy is worth the same and
+// nothing needs a cap; reloadMul/fillMul/ventMul are direct time cuts, used by frames and old saves), pickup, ventSpeed, ventBurst, isolatedLoops, dodge, ram
 export const MODULES = {
   plating:  { name: "Armor Plating",      weight: 8, price: 20, fx: { armor: 3, maxHp: 5 },       desc: "+3 armor, +5 max HP" },
   frame:    { name: "Reinforced Frame",   weight: 6, price: 18, fx: { maxHp: 20 },                desc: "+20 max HP" },
   actuator: { name: "Actuator Upgrade",   weight: 2, price: 16, fx: { speedMul: 0.1 },            desc: "+10% speed" },
   nanites:  { name: "Repair Nanites",     weight: 1, price: 22, fx: { regen: 0.6 },               desc: "+0.6 HP/s regeneration" },
-  sinks:    { name: "Heat Sinks",         weight: 4, price: 18, fx: { ventMul: -0.2 },            desc: "Vents 20% faster" },
-  reactor:  { name: "Reactor Core",       weight: 5, price: 24, fx: { fillMul: -0.15 },           desc: "Capacitor charges 15% faster" },
-  feed:     { name: "Ammo Feed",          weight: 3, price: 16, fx: { reloadMul: -0.2 },          desc: "Reloads 20% faster" },
+  sinks:    { name: "Heat Sinks",         weight: 4, price: 18, fx: { ventSpd: 0.3 },             desc: "Vents 30% faster" },
+  reactor:  { name: "Reactor Core",       weight: 5, price: 24, fx: { fillSpd: 0.25 },            desc: "Capacitor charges 25% faster" },
+  feed:     { name: "Ammo Feed",          weight: 3, price: 16, fx: { reloadSpd: 0.2 },           desc: "Reloads 20% faster" },
   servos:   { name: "Servo Motors",       weight: 3, price: 18, fx: { dmgMelee: 0.2 },            desc: "+20% melee damage" },
   lens:     { name: "Capacitor Lens",     weight: 2, price: 18, fx: { dmgEnergy: 0.2 },           desc: "+20% energy damage" },
   barrels:  { name: "Calibrated Barrels", weight: 2, price: 18, fx: { dmgBallistic: 0.2 },        desc: "+20% ballistic damage" },
@@ -271,9 +272,9 @@ export const PERKS = {
   focusing: ["Focusing", "energy damage",             { dmgEnergy: 0.08 },   { dmgEnergy: 0.16 }],
   brawler:  ["Brawler", "melee damage",               { dmgMelee: 0.08 },    { dmgMelee: 0.16 }],
   optics:   ["Optics", "weapon range",                { rangeMul: 0.06 },    { rangeMul: 0.12 }],
-  loader:   ["Autoloader", "reload time",             { reloadMul: -0.08 },  { reloadMul: -0.16 }],
-  charge:   ["Charge Discipline", "capacitor charge", { fillMul: -0.06 },    { fillMul: -0.12 }],
-  coolant:  ["Coolant Routing", "vent time",          { ventMul: -0.08 },    { ventMul: -0.16 }],
+  loader:   ["Autoloader", "reload speed",            { reloadSpd: 0.08 },   { reloadSpd: 0.16 }],
+  charge:   ["Charge Discipline", "capacitor charge", { fillSpd: 0.08 },     { fillSpd: 0.16 }],
+  coolant:  ["Coolant Routing", "vent speed",         { ventSpd: 0.1 },      { ventSpd: 0.2 }],
   magnet:   ["Scavenger", "salvage pickup range",     { pickup: 10 },        { pickup: 22 }],
   reflexes: ["Reflexes", "glance chance",             { dodge: 0.04 },       { dodge: 0.08 }],
   frame:    ["Frame Bracing", "tonnage capacity",     { capacity: 5 },       { capacity: 10 }],
