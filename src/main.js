@@ -3,7 +3,7 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, recompute, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
+import { newRun, recompute, enterDistrict, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play, setRain, probe, SFX_NAMES } from "./audio.js";
@@ -44,7 +44,7 @@ let run = null, paused = false, acc = 0, last = performance.now(), shownPhase = 
 function deploy() {
   if (!BOT) saveSettings({ chassis: opts.chassis, start: opts.start, targeting: opts.targeting });
   run = newRun({ seed: opts.seed ?? (Date.now() >>> 0), chassis: opts.chassis, start: opts.start, ventMode: opts.ventMode, targeting: opts.targeting, tod: opts.tod, allowed: allowedWeapons() });
-  if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; startWave(run); }   // ?wave=16 is past curfew +1 (the city stays district 1's)
+  if (params.has("wave")) { run.wave = Math.max(0, Math.min(40, +params.get("wave") - 1)); run.endless = run.wave >= WAVES.length; if (run.wave >= 5) { enterDistrict(run); run.arriving = false; } startWave(run); }   // ?wave=16 is past curfew +1; the city is that wave's district
   else if (!BOT && !params.has("nointro") && (!params.has("go") || params.has("intro"))) { run.intro = { t: 0 }; run.events.push({ type: "dropship" }); }   // round 1: the drop (?go test runs skip it unless &intro)
   paused = false; acc = 0; shownPhase = "";
   input.reset();

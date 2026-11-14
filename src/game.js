@@ -1,11 +1,11 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
-  waveDef, pastCurfew, FLY_ALT, DISTRICT_WAVES, DISTRICTS, districtOf, opensDistrict, KEYSTONE,
+  waveDef, pastCurfew, FLY_ALT, DISTRICT_WAVES, DISTRICTS, districtOf, opensDistrict, KEYSTONE, TERRAIN,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
-import { generateCity, collide, clearLine, solidAt, traverse, damageAt, damageBuilding, TILE, T, COLS as TCOLS, ROWS as TROWS } from "./city.js";
+import { generateCity, collide, clearLine, solidAt, blockedAt, groundAt, traverse, damageAt, damageBuilding, TILE, T, G as GROUND, COLS as TCOLS, ROWS as TROWS } from "./city.js";
 import { makeField, updateField, steer, reachable } from "./flow.js";
 
 // ---------------------------------------------------------------- utils
@@ -61,7 +61,7 @@ export function newRun({ seed = Date.now(), chassis = "warden", start = "autocan
     salvage: 0, kills: 0,
     weapons: [], modules: [],
     player: { x: ARENA.w / 2, y: ARENA.h / 2, hp: 0, iframes: 0, aim: 0, moving: false, hurt: 0 },
-    city: generateCity(seed),   // persists for the whole run: damage piles up wave after wave
+    city: generateCity(seed, DISTRICTS[0].layout),   // persists for the whole run: damage piles up wave after wave
     field: makeField(false), heavyField: makeField(true),
     cap: { charge: 0, vent: 0, ventMax: 1, hold: 0 },
     enemies: [], shots: [], bolts: [], pickups: [], marks: [], fx: [], parts: [], texts: [], shells: [], missiles: [], lobs: [], pools: [],
@@ -290,7 +290,9 @@ export function update(run, dt, move) {
 
   // --- player movement
   const venting = run.cap.vent > 0;
-  const spd = speedOf(run) * (venting ? 1 + s.ventSpeed : 1);
+  const wading = groundAt(run.city, p.x, p.y) === GROUND.POOL;
+  const spd = speedOf(run) * (venting ? 1 + s.ventSpeed : 1) * (wading ? TERRAIN.poolSpeed : 1);
+  p.wading = wading;
   p.moving = move.x !== 0 || move.y !== 0;
   const city = run.city;
   p.x += move.x * spd * dt; p.y += move.y * spd * dt;
@@ -298,6 +300,10 @@ export function update(run, dt, move) {
   p.x = clamp(p.x, run.chassis.radius, ARENA.w - run.chassis.radius);
   p.y = clamp(p.y, run.chassis.radius, ARENA.h - run.chassis.radius);
   if (p.moving) { p.moveAngle = Math.atan2(move.y, move.x); breakProps(run, p.x, p.y, run.chassis.radius + 3); }
+  if (wading && p.moving && rand() < dt * 22) {   // wading: spray kicked up behind the mech
+    const a = Math.atan2(-move.y, -move.x) + (rand() - 0.5) * 1.6, v = 20 + rand() * 30;
+    run.parts.push({ x: p.x + (rand() - 0.5) * 8, y: p.y + 2, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 14, t: 0.35, max: 0.35, color: rand() < 0.5 ? "#cfeef2" : "#7fc4cc", size: 1 });
+  }
   p.iframes -= dt; p.hurt = Math.max(0, p.hurt - dt);
   p.hp = Math.min(s.maxHp, p.hp + s.regen * dt);
 
@@ -480,7 +486,7 @@ export function update(run, dt, move) {
       }
     }
     if (e.stunT > 0) e.stunT -= dt;   // arc-stunned: frozen in place for a beat
-    const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul * (e.stunT > 0 ? 0 : 1);
+    const spd = d.speed * (e.crushing ? 0.45 : 1) * e.spdMul * (e.stunT > 0 ? 0 : 1) * (!d.flying && groundAt(city, e.x, e.y) === GROUND.POOL ? TERRAIN.poolSpeed : 1);
     e.crushing = false;
     e.x += (mx * spd + e.kx) * dt;
     e.y += (my * spd + e.ky) * dt;
@@ -501,7 +507,7 @@ export function update(run, dt, move) {
       e.depT = d.deployEvery;
       for (let i = 0; i < d.deploy; i++) {
         const a = rand() * Math.PI * 2, x = e.x + Math.cos(a) * (d.r + 10), y = e.y + Math.sin(a) * (d.r + 10);
-        if (!solidAt(city, x, y)) run.marks.push({ x, y, t: 0.5, max: 0.5, type: "sapper", noElite: true });
+        if (!blockedAt(city, x, y)) run.marks.push({ x, y, t: 0.5, max: 0.5, type: "sapper", noElite: true });
       }
     }
     if (d.shootEvery && (e.shootT -= dt) <= 0) {
@@ -900,7 +906,7 @@ export function update(run, dt, move) {
 // ---------------------------------------------------------------- the Hive Block
 const HIVE_BANK = 1e9;   // the nest's building holds this much HP; whatever is knocked off it goes to the hive
 function hiveSite(run) {   // a big standing building 90-230px from the mech (else the biggest standing one)
-  const p = run.player, ok = run.city.buildings.filter((b) => !b.dead && b.w * b.h >= 4);
+  const p = run.player, ok = run.city.buildings.filter((b) => !b.dead && !b.fixed && b.w * b.h >= 4);
   const score = (b) => { const d = Math.hypot((b.x + b.w / 2) * TILE - p.x, (b.y + b.h / 2) * TILE - p.y); return (d > 90 && d < 230 ? 100 : 0) + b.w * b.h; };
   return ok.sort((a, b) => score(b) - score(a))[0] || null;
 }
@@ -934,7 +940,7 @@ function spawnPoint(run, minDist) {
   for (let i = 0; i < 60; i++) {
     const tx = 1 + Math.floor(run.rand() * (TCOLS - 2)), ty = 1 + Math.floor(run.rand() * (TROWS - 2));
     const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
-    if (city.tile[ty * TCOLS + tx] === T.BUILDING || city.tile[ty * TCOLS + tx] === T.WALL || !reachable(run.field, x, y)) continue;
+    if (city.tile[ty * TCOLS + tx] !== T.GROUND && city.tile[ty * TCOLS + tx] !== T.RUBBLE || !reachable(run.field, x, y)) continue;
     const d = Math.hypot(x - p.x, y - p.y);
     if (d >= minDist && d < minDist * 2.6) return { x, y };
     if (d >= minDist && !best) best = { x, y };
@@ -1436,8 +1442,9 @@ export function nextWave(run) {
 }
 
 /** The next district: a fresh city (the old one stays as you left it, on the bill). The build carries over. */
-function enterDistrict(run) {
-  run.city = generateCity((run.seed + 7919 * districtOf(run.wave)) >>> 0);
+export function enterDistrict(run) {
+  const d = districtOf(run.wave);
+  run.city = generateCity((run.seed + 7919 * d) >>> 0, DISTRICTS[d].layout);
   run.field = makeField(false); run.heavyField = makeField(true);
   run.m.cityHp += run.city.buildings.reduce((t, b) => t + b.maxHp, 0);
   attachLedger(run);

@@ -222,7 +222,9 @@ export const ENEMIES = {
 // in the dark; the mech and its build carry over (user, 2026-11-10: "we need a longer game" -> three districts,
 // about 15 minutes). District 1 is the original five waves, unchanged.
 export const DISTRICT_WAVES = 5;
-export const DISTRICTS = [{ name: "Harbor Row" }, { name: "Midtown" }, { name: "The Spire" }];
+// Each district is its own kind of city (city.js LAYOUTS). User 2026-11-14: "Let's make midtown the first district".
+export const DISTRICTS = [{ name: "Midtown", layout: "midtown" }, { name: "Harbor Row", layout: "harbor" }, { name: "The Spire", layout: "spire" }];
+export const TERRAIN = { poolSpeed: 0.6 };   // wading through the reflecting pool: the mech and every ground enemy ("water being bad for everyone")
 // Wave table. pool: [type, weight]
 const BASE = [
   { duration: 20, interval: 1.5, group: 3, pool: [["drone", 1]] },

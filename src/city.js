@@ -8,11 +8,11 @@
 import { mulberry32 } from "./rng.js";
 
 export const TILE = 12, COLS = 56, ROWS = 56;
-export const T = { GROUND: 0, BUILDING: 1, RUBBLE: 2, WALL: 3 };
+export const T = { GROUND: 0, BUILDING: 1, RUBBLE: 2, WALL: 3, WATER: 4 };   // WATER: deep water. Nothing on the ground crosses it; shots and flyers do
 export const G = { ROAD: 0, SIDEWALK: 1, PLAZA: 2, GRASS: 3, LOT: 4, ALLEY: 5, EDGE: 6, POOL: 7, DEEP: 8, BRIDGE: 9, PIER: 10 };
 export const isWater = (g) => g === G.POOL || g === G.DEEP;
 
-// District layouts (MOCK-UP, 2026-11-14: terrain only, no rules yet; the game still builds the classic city).
+// District layouts (content.js DISTRICTS picks one per district; "classic" is the original city).
 //   harbor: a waterfront along the south edge with piers, and a canal up through the map that only some streets bridge
 //   midtown: a mall on the city's axis with a long reflecting pool and a monument, wide avenues, open courtyards
 //   spire: two-tile streets, no parks, tall towers with alleys between them, and one giant tower beside the plaza
@@ -63,7 +63,9 @@ export function generateCity(seed, layout = "classic") {
   // the canal takes the place of one avenue, well clear of the plaza, and is a tile wider
   let canal = -1;
   if (L.canal) {
-    const ok = xs.map((l, i) => i).filter((i) => i > 0 && i < xs.length - 1 && (xs[i][0] + 3 < PLAZA.x0 - 3 || xs[i][0] > PLAZA.x1 + 3) && xs[i + 1][0] - xs[i][0] >= 10);
+    const inner = xs.map((l, i) => i).filter((i) => i > 0 && i < xs.length - 1), clear = (i, m) => xs[i][0] + 3 < PLAZA.x0 - m || xs[i][0] > PLAZA.x1 + m;
+    let ok = inner.filter((i) => clear(i, 3) && xs[i + 1][0] - xs[i][0] >= 10);
+    if (!ok.length) ok = inner.filter((i) => clear(i, 0) && xs[i + 1][0] - xs[i][0] >= 9);   // tighter fits before giving up on a canal
     if (ok.length) { canal = ok[ri(0, ok.length - 1)]; xs[canal][1] = 3; }
   }
   for (const [x0, w] of xs) for (let x = x0; x < x0 + w; x++) for (let y = 1; y < RH - 1; y++) { ground[idx(x, y)] = G.ROAD; roadDir[idx(x, y)] |= 1; }
@@ -179,7 +181,7 @@ export function generateCity(seed, layout = "classic") {
     pave(SPIRE);
     addBuilding(x0 + 1, y0 + 1, x1 - 1, y1 - 2);
     const b = buildings[buildings.length - 1];
-    Object.assign(b, { style: 6, landmark: true, height: 9, neon: undefined, spire: true });
+    Object.assign(b, { style: 6, landmark: true, height: 9, neon: undefined, spire: true, fixed: true });   // fixed: it cannot be brought down
     b.hp = b.maxHp = Math.round(b.w * b.h * 24 * 4);
   }
   if (L.water) {   // the harbour: open water south of the quay road, with a pier off the end of every other avenue
@@ -211,6 +213,8 @@ export function generateCity(seed, layout = "classic") {
     if (ground[i] === G.SIDEWALK && rand() < 0.07 && !near(cx, cy, TILE * 2.5)) props.push({ type: "lamp", x: cx, y: cy, broken: false });
   }
 
+  for (let i = 0; i < N; i++) if (ground[i] === G.DEEP) tile[i] = T.WATER;
+
   return {
     seed, layout, tile, ground, bid, roadDir, buildings, props, roads: { xs, ys }, plaza: PLAZA,
     spawn: { x: (COLS / 2) * TILE, y: (ROWS / 2) * TILE },
@@ -228,6 +232,15 @@ export function solidTile(city, tx, ty) {
   return t === T.BUILDING || t === T.WALL;
 }
 export const solidAt = (city, px, py) => solidTile(city, Math.floor(px / TILE), Math.floor(py / TILE));
+/** Can nothing on the ground stand here? Solid tiles, plus deep water (which shots and sight lines cross). */
+export function blockedTile(city, tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return true;
+  const t = city.tile[ty * COLS + tx];
+  return t === T.BUILDING || t === T.WALL || t === T.WATER;
+}
+export const blockedAt = (city, px, py) => blockedTile(city, Math.floor(px / TILE), Math.floor(py / TILE));
+/** The ground type under a point (G.*) */
+export const groundAt = (city, px, py) => { const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE); return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS ? G.EDGE : city.ground[ty * COLS + tx]; };
 
 /** Push a circle out of solid tiles. onHit(tileIndex) is called for each building tile touched. */
 export function collide(city, o, r, onHit) {
@@ -236,7 +249,7 @@ export function collide(city, o, r, onHit) {
     const ty0 = Math.floor((o.y - r) / TILE), ty1 = Math.floor((o.y + r) / TILE);
     let moved = false;
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-      if (!solidTile(city, tx, ty)) continue;
+      if (!blockedTile(city, tx, ty)) continue;
       const nx = Math.max(tx * TILE, Math.min(o.x, (tx + 1) * TILE)), ny = Math.max(ty * TILE, Math.min(o.y, (ty + 1) * TILE));
       let dx = o.x - nx, dy = o.y - ny, d = Math.hypot(dx, dy);
       if (d >= r) continue;
@@ -290,6 +303,7 @@ export function damageAt(city, ti, dmg) {
 }
 export function damageBuilding(city, b, dmg, quiet = false) {
   if (!b || b.dead) return null;
+  if (b.fixed) { if (!quiet) b.hit = 0.12; return null; }
   if (city.dmgMul) dmg *= city.dmgMul();   // Wrecking Crew (game.js)
   city.onDamage?.(b, Math.min(dmg, Math.max(0, b.hp)));   // the run's property-damage ledger (game.js)
   b.hp -= dmg; if (!quiet) b.hit = 0.12;

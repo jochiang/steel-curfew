@@ -3,7 +3,7 @@
 // some momentum so it doesn't dither. Not meant to be good, just to exercise the loop.
 import { WEAPONS } from "./content.js";
 import { blocked, buy, choosePerk } from "./game.js";
-import { solidAt } from "./city.js";
+import { blockedAt as solidAt } from "./city.js";
 
 let lastA = 0;
 

@@ -5,7 +5,7 @@
 // The heavy field (brutes, bosses) treats buildings as expensive but passable: they plough
 // through when that's much shorter than walking round, damaging the building as they push.
 
-import { COLS, ROWS, TILE, T } from "./city.js";
+import { COLS, ROWS, TILE, T, G } from "./city.js";
 
 const N = COLS * ROWS;
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [-1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, -1, Math.SQRT2]];
@@ -16,8 +16,9 @@ export function makeField(heavy = false) {
 
 function cost(city, i, heavy) {
   const t = city.tile[i];
-  if (t === T.WALL) return Infinity;
+  if (t === T.WALL || t === T.WATER) return Infinity;
   if (t === T.BUILDING) return heavy ? 7 : Infinity;
+  if (city.ground[i] === G.POOL) return 1.7;   // wading is slow: go round when that's quicker
   return t === T.RUBBLE ? 1.3 : 1;
 }
 
