@@ -88,6 +88,16 @@ function addWeapon(run, key, tier) {
   run.weapons.push({ key, tier, cd: 0, mag: WEAPONS[key].mag || 0, reloadT: 0 });
 }
 
+// Where a stat stops: chances at 100% (glancing at 60%), time cuts at 70% off (the 0.3 floors below).
+const STAT_CAP = { dodge: 0.6, energyIgnite: 1, energyArc: 1, ballisticIgnite: 1, pierce: 1 };
+const STAT_FLOOR = { reloadMul: -0.7, fillMul: -0.7, ventMul: -0.7 };
+const EPS = 1e-6;
+/** Would another copy of this module add nothing? True when every stat it gives is already at its limit. */
+export function moduleSpent(run, key) {
+  const s = run.stats;
+  return Object.keys(MODULES[key].fx).every((k) => (k in STAT_CAP && s[k] >= STAT_CAP[k] - EPS) || (k in STAT_FLOOR && s[k] <= STAT_FLOOR[k] + EPS));
+}
+
 export function recompute(run) {
   const s = {
     maxHp: run.chassis.hp, armor: run.chassis.armor, regen: 0, speedMul: 0, dmgBallistic: 0, dmgEnergy: 0, dmgMelee: 0,
@@ -98,8 +108,7 @@ export function recompute(run) {
   for (const pk of run.perks) for (const [k, v] of Object.entries(pk.fx)) s[k] += v;
   for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
   for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
-  s.dodge = Math.min(0.6, s.dodge);
-  s.energyIgnite = Math.min(0.6, s.energyIgnite); s.energyArc = Math.min(0.5, s.energyArc); s.ballisticIgnite = Math.min(0.45, s.ballisticIgnite); s.pierce = Math.min(0.6, s.pierce);
+  for (const [k, cap] of Object.entries(STAT_CAP)) s[k] = Math.min(cap, s[k]);
   run.mounts = assignMounts(run);
   run.stats = s;
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
@@ -1404,6 +1413,7 @@ export function rollOffers(run) {
     } else {
       const key = pick(run.rand, Object.keys(MODULES).map((k) => [k, 1]));
       if (MODULES[key].unique && run.modules.includes(key)) continue;
+      if (moduleSpent(run, key)) continue;   // maxed out: another copy would do nothing
       o = { kind: "module", key, tier: 0, price: Math.round(modulePrice(key, run.wave) * (1 - run.stats.discount)) };
     }
     if (out.some((x) => x.kind === o.kind && x.key === o.key && x.tier === o.tier)) continue;
@@ -1427,6 +1437,7 @@ export function blocked(run, o) {
   if (run.salvage < o.price) return "Can't afford";
   if (o.kind === "module") {
     if (MODULES[o.key].unique && run.modules.includes(o.key)) return "Installed";
+    if (moduleSpent(run, o.key)) return "Maxed out";
     if (run.load + MODULES[o.key].weight > capacityOf(run)) return "Over tonnage";
     return null;
   }
