@@ -37,6 +37,14 @@ export const CHASSIS = {
     mounts: [[-8, -2], [8, -2], [-7, -9], [7, -9], [0, -14]],
   },
 };
+export const KEYSTONE = {
+  ricochet: { dmg: 1.5, seek: 90, life: 0.3 },
+  chain: { radius: 24, hpFrac: 0.35, delay: 0.1, burn: 2, burnFrac: 0.2 },
+  static: { frac: 0.6, jump: 50 },
+  twin: { gap: 0.3, wait: 1.5, vent: 2 },
+  afterburn: { every: 9, radius: 11, dur: 2.5, dps: 5 },
+  wrecking: { building: 3, base: 25, perTile: 6, margin: 14 },
+};
 export const RAM = { building: 90, enemy: 10, knock: 140, every: 0.45 };   // Bulwark: dps to buildings; hit per enemy contact
 // Every frame hurts what it walks into (user: "shouldn't a giant mech presumably be doing some amount of damage
 // via ramming?"): RAM.enemy x the chassis's stomp (Bulwark 1 = the full ram), half when standing still.
@@ -160,6 +168,15 @@ export const MODULES = {
   coils:    { name: "Arc Coils",          weight: 3, price: 24, fx: { energyArc: 0.2 },         desc: "Energy hits: 20% chance to arc to a nearby enemy for half damage" },
   incend:   { name: "Incendiary Rounds",  weight: 2, price: 20, fx: { ballisticIgnite: 0.15 }, desc: "Ballistic hits: 15% chance to set the target on fire" },
   apRounds: { name: "AP Rounds",          weight: 2, price: 20, fx: { pierce: 0.25 },           desc: "Rounds: 25% chance to punch through a target and keep going" },
+  // Keystones (user 2026-11-13: "it's a store item, it gets highlighted, and you might see all of them but as soon as you
+  // buy one you're locked in"): one per run, no tonnage, each changes how a build plays instead of adding a percentage.
+  ricochet: { name: "Ricochet",        keystone: true, weight: 0, price: 55, fx: { ricochet: 1 },      desc: "Rounds bounce off buildings toward a nearby enemy and hit 50% harder" },
+  chain:    { name: "Chain Reaction",  keystone: true, weight: 0, price: 55, fx: { chainReaction: 1 }, desc: "Enemies that die while burning explode and set fire to everything around them" },
+  static:   { name: "Static Field",    keystone: true, weight: 0, price: 55, fx: { staticField: 1 },   desc: "Every melee hit arcs to a nearby enemy for 60% damage" },
+  twin:     { name: "Twin Capacitor",  keystone: true, weight: 0, price: 55, fx: { twinCap: 1 },       desc: "The capacitor fires two volleys back to back, then vents for twice as long" },
+  afterburn:{ name: "Afterburn",       keystone: true, weight: 0, price: 55, fx: { afterburn: 1 },     desc: "While venting, the mech leaves a trail of fire" },
+  wrecking: { name: "Wrecking Crew",   keystone: true, weight: 0, price: 55, fx: { wrecking: 1 },      desc: "Triple damage to buildings, and a collapsing building crushes the enemies around it" },
+  glass:    { name: "Glass Reactor",   keystone: true, weight: 0, price: 55, fx: { dmgAll: 0.6, hpMul: -0.5 }, desc: "+60% damage from everything. Max HP halved" },
 };
 
 export const ENEMIES = {
@@ -253,6 +270,9 @@ export const waveDmgMul = (w) => 1 + 0.15 * Math.min(w, 4) + 0.1 * Math.max(0, w
 
 export const SHOP = {
   offers: 4,
+  keystoneFrom: 2,      // keystones can be offered from the hangar after wave 3 (0-based waves cleared - 1)
+  keystoneChance: 0.3,  // per shop roll, while none is owned; at most one on offer
+
   rerollBase: 3,
   rerollStep: 2,
   priceWaveMul: (w) => 1 + 0.12 * w,          // w = waves cleared - 1

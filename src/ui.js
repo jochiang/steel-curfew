@@ -182,15 +182,15 @@ export function renderHangar(run, onDeploy) {
   const offers = run.shop.offers.map((o, i) => {
     const def = o.kind === "weapon" ? WEAPONS[o.key] : MODULES[o.key];
     const why = blocked(run, o);
-    const fam = o.kind === "weapon" ? def.family : "module";
+    const fam = o.kind === "weapon" ? def.family : "module", key = o.kind === "module" && def.keystone;
     const merge = !why && buyMerges(run, o);
     return `
-      <div class="offer fam-${fam}${o.sold ? " sold" : ""}${o.locked ? " locked" : ""}">
-        <div class="offer-top"><span class="tag">${FAM[fam]}</span>
+      <div class="offer fam-${fam}${key ? " keystone" : ""}${o.sold ? " sold" : ""}${o.locked ? " locked" : ""}">
+        <div class="offer-top"><span class="tag">${key ? "Keystone" : FAM[fam]}</span>
           ${o.sold ? "" : `<button class="lock" data-lock="${i}" aria-label="${o.locked ? "Unlock" : "Lock"}" aria-pressed="${o.locked}">${o.locked ? "Locked" : "Lock"}</button>`}</div>
         <b>${esc(def.name)}${o.kind === "weapon" ? ` <em>${TIER_NAMES[o.tier]}</em>` : ""}</b>
         <small>${esc(def.desc)}</small>
-        <div class="offer-meta">${o.kind === "weapon" ? statLine(def, o.tier) : ""}<span>${def.weight} t</span></div>
+        <div class="offer-meta">${o.kind === "weapon" ? statLine(def, o.tier) : ""}<span>${key ? "one per run · no tonnage" : `${def.weight} t`}</span></div>
         ${o.sold ? `<div class="soldmark">Bought</div>` : `<button class="buy${why === "Can't afford" ? " poor" : ""}" data-buy="${i}" ${why ? "disabled" : ""}>
           ${why && why !== "Can't afford" ? esc(why) : `◆ ${o.price}${merge ? " · merge" : ""}`}</button>`}
       </div>`;
@@ -213,7 +213,7 @@ export function renderHangar(run, onDeploy) {
 
   const counts = {};
   for (const m of run.modules) counts[m] = (counts[m] || 0) + 1;
-  const mods = Object.entries(counts).map(([k, n]) => `<span class="chip" title="${esc(MODULES[k].desc)}">${esc(MODULES[k].name)}${n > 1 ? ` ×${n}` : ""}</span>`).join("") || `<span class="none">none yet</span>`;
+  const mods = Object.entries(counts).map(([k, n]) => `<span class="chip${MODULES[k].keystone ? " keystone" : ""}" title="${esc(MODULES[k].desc)}">${esc(MODULES[k].name)}${n > 1 ? ` ×${n}` : ""}</span>`).join("") || `<span class="none">none yet</span>`;
   const loadPct = Math.min(100, (run.load / capacityOf(run)) * 100);
   const targeting = times ? `
           <h3>Capacitor targeting</h3>

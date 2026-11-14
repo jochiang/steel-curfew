@@ -1,7 +1,7 @@
 import {
   ARENA, BUILDING_DMG, CHASSIS, HARDPOINT, RAM, WEAPONS, MODULES, ENEMIES, WAVES, HEAT, SHOP, TIER_DMG, TIER_PRICE,
   PLAYER_IFRAMES, PICKUP_RADIUS, MAX_ENEMIES, ELITE, XP, PERKS, CROWD_NEED, HOLD_GIVEUP, GROUP_GROW, GROUP_GROW_MAX, loadSpeed, armorMul, waveHpMul, waveDmgMul,
-  waveDef, pastCurfew, FLY_ALT, DISTRICT_WAVES, DISTRICTS, districtOf, opensDistrict,
+  waveDef, pastCurfew, FLY_ALT, DISTRICT_WAVES, DISTRICTS, districtOf, opensDistrict, KEYSTONE,
 } from "./content.js";
 
 import { mulberry32 } from "./rng.js";
@@ -106,11 +106,13 @@ export function recompute(run) {
     rangeMul: 0, reloadMul: 0, fillMul: 0, ventMul: 0, reloadSpd: 0, fillSpd: 0, ventSpd: 0, pickup: PICKUP_RADIUS, ventSpeed: 0, ventBurst: 0, isolatedLoops: 0,
     dodge: 0, ram: 0, capacity: 0, energyIgnite: 0, energyArc: 0, ballisticIgnite: 0, pierce: 0,
     bonusSalvage: 0, discount: 0, freeReroll: 0, volleyBounty: 0,   // frame signatures (Kestrel, Warden, Tempest)
+    ricochet: 0, chainReaction: 0, staticField: 0, twinCap: 0, afterburn: 0, wrecking: 0, dmgAll: 0, hpMul: 0,   // keystones
   };
   for (const pk of run.perks) for (const [k, v] of Object.entries(pk.fx)) s[k] += v;
   for (const [k, v] of Object.entries(run.chassis.fx)) s[k] += v;
   for (const m of run.modules) for (const [k, v] of Object.entries(MODULES[m].fx)) s[k] += v;
   for (const [k, cap] of Object.entries(STAT_CAP)) s[k] = Math.min(cap, s[k]);
+  s.maxHp = Math.max(1, Math.round(s.maxHp * (1 + s.hpMul)));   // Glass Reactor
   run.mounts = assignMounts(run);
   run.stats = s;
   run.load = run.weapons.reduce((t, w) => t + WEAPONS[w.key].weight, 0) + run.modules.reduce((t, m) => t + MODULES[m].weight, 0);
@@ -190,14 +192,15 @@ export function attachLedger(run) {
     const who = b.burnBy && blame === "fire" ? b.burnBy : blame === "fire" ? "you" : blame;
     m.prop[who] += applied; b.lastBlame = who;
   };
+  run.city.dmgMul = () => (blame === "you" && run.stats.wrecking ? KEYSTONE.wrecking.building : 1);
 }
 
 export function startWave(run) {
   const p = run.player;
   Object.assign(p, { x: run.city.spawn.x, y: run.city.spawn.y, hp: run.stats.maxHp, iframes: 0, hurt: 0 });
-  Object.assign(run.cap, { charge: 0, vent: 0, hold: 0 });
+  Object.assign(run.cap, { charge: 0, vent: 0, hold: 0, twin: 0, trail: null });
   for (const w of run.weapons) Object.assign(w, { cd: 0, mag: WEAPONS[w.key].mag || 0, reloadT: 0, spin: 0, heat: 0 });
-  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles", "lobs", "pools"]) (run[k] ||= []).length = 0;
+  for (const k of ["enemies", "shots", "bolts", "pickups", "marks", "fx", "parts", "texts", "shells", "missiles", "lobs", "pools", "chains"]) (run[k] ||= []).length = 0;
   run.waveTime = 0; run.spawnT = 0.6; run.bossSpawned = false; run.phase = "combat"; run.clearing = 0;
   run.events.push({ type: "waveStart" });
 }
@@ -255,7 +258,7 @@ export function mountPoint(run, wi) {
 export const canMount = (chassis, family) => chassis.hardpoints.some((h) => h === "U" || HARDPOINT[h] === family);
 
 // ---------------------------------------------------------------- derived numbers (also used by UI)
-export const famDmg = (s, fam) => 1 + (fam === "ballistic" ? s.dmgBallistic : fam === "energy" ? s.dmgEnergy : s.dmgMelee);
+export const famDmg = (s, fam) => (1 + (fam === "ballistic" ? s.dmgBallistic : fam === "energy" ? s.dmgEnergy : s.dmgMelee)) * (1 + (s.dmgAll || 0));
 export const weaponDmg = (run, w) => WEAPONS[w.key].dmg * TIER_DMG[w.tier] * famDmg(run.stats, WEAPONS[w.key].family);
 export const capacityOf = (run) => run.chassis.capacity + (run.stats?.capacity || 0);
 export const speedOf = (run) => run.chassis.speed * loadSpeed(run.load, capacityOf(run)) * (1 + run.stats.speedMul);
@@ -645,6 +648,7 @@ export function update(run, dt, move) {
           const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
           if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
           hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock, true);
+          if (s.staticField) staticArc(run, e, dmg);
           e.burn = Math.max(e.burn, def.burn.dur); e.burnDps = Math.max(e.burnDps || 0, burnDps); e.burnSrc = w.key;
         });
         igniteInArc(run, a, def.arc, reach + 4, def.buildingBurn);
@@ -666,6 +670,7 @@ export function update(run, dt, move) {
         const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
         if (d > reach + e.d.r || angDiff(Math.atan2(dy, dx), a) > def.arc / 2) return;
         hitEnemy(run, e, dmg, (dx / (d || 1)) * def.knock, (dy / (d || 1)) * def.knock);
+        if (s.staticField) staticArc(run, e, dmg);
         hits++;
         if (!heavy) for (let k = 0; k < 3; k++) {   // chainblade: sparks off every body it bites
           const sa = a + Math.PI / 2 * (rand() < 0.5 ? 1 : -1) + (rand() - 0.5), v = 60 + rand() * 90;
@@ -687,33 +692,52 @@ export function update(run, dt, move) {
 
   // --- energy: shared capacitor -> alpha strike -> vent
   const times = capTimes(run), cap = run.cap;
-  if (!times) { cap.charge = 0; cap.vent = 0; }
+  const energyOf = () => run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
+  const volley = (plans) => {
+    run.volley = { first: true };   // the Tempest's volley bounty counts the kills of this discharge
+    for (const [w, pl] of plans) discharge(run, w, pl.aim, pl);
+    run.volley = null;
+    run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
+    run.shake = Math.max(run.shake, 5);
+  };
+  const startVent = (mul) => {
+    cap.vent = cap.ventMax = times.vent * mul; cap.hold = 0; cap.twin = 0;
+    run.events.push({ type: "vent", dur: cap.vent });
+    if (s.ventBurst) {
+      credit = "vent burst";
+      near(p.x, p.y, 60, (e) => {
+        const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+        if (d < 45 + e.d.r) hitEnemy(run, e, s.ventBurst * waveHpMul(run.wave) * 0.8, (dx / d) * 80, (dy / d) * 80);
+      });
+      run.fx.push({ type: "ring", x: p.x, y: p.y, r: 45, t: 0.35, max: 0.35, color: "#ffb36b" });
+    }
+  };
+  if (!times) { cap.charge = 0; cap.vent = 0; cap.twin = 0; }
   else if (cap.vent > 0) {
     cap.vent -= dt;
     if (rand() < dt * 30) steam(run);
-    if (cap.vent <= 0) { cap.vent = 0; cap.charge = 0; }
+    if (s.afterburn) {   // Afterburn: fire wherever the venting mech has walked
+      const A = KEYSTONE.afterburn, last = cap.trail;
+      if (!last || Math.hypot(p.x - last.x, p.y - last.y) >= A.every) {
+        cap.trail = { x: p.x, y: p.y };
+        run.pools.push({ x: p.x, y: p.y, r: A.radius, t: A.dur, max: A.dur, dps: A.dps * waveHpMul(run.wave) * (1 + s.dmgAll), bb: 0, tick: 0, seed: rand(), src: "afterburn" });
+      }
+    }
+    if (cap.vent <= 0) { cap.vent = 0; cap.charge = 0; cap.trail = null; }
+  } else if (cap.twin > 0) {   // Twin Capacitor: the second volley, as soon as there is something to hit
+    const T = KEYSTONE.twin;
+    cap.twin += dt;
+    const plans = cap.twin >= 1 + T.gap ? energyOf().map((w) => [w, plan(run, w)]) : [];
+    if (plans.some(([, pl]) => pl.ready)) { volley(plans); startVent(T.vent); }
+    else if (cap.twin >= 1 + T.wait) startVent(1);   // nothing came into reach: an ordinary vent
   } else {
     if (cap.charge < 1 && cap.charge + dt / times.fill >= 1) run.events.push({ type: "charged" });
     cap.charge = Math.min(1, cap.charge + dt / times.fill);
-    const energy = run.weapons.filter((w) => WEAPONS[w.key].family === "energy");
-    const plans = cap.charge >= 1 ? energy.map((w) => [w, plan(run, w)]) : [];
+    const plans = cap.charge >= 1 ? energyOf().map((w) => [w, plan(run, w)]) : [];
     if (plans.length) cap.hold += dt;
     if (plans.some(([, pl]) => pl.ready)) {
-      run.volley = { first: true };   // the Tempest's volley bounty counts the kills of this discharge
-      for (const [w, pl] of plans) discharge(run, w, pl.aim, pl);
-      run.volley = null;
-      cap.vent = cap.ventMax = times.vent; cap.hold = 0;
-      run.events.push({ type: "vent", dur: times.vent });
-      run.freeze = 0.05;   // hit-stop: render-side pause that sells the alpha strike
-      run.shake = Math.max(run.shake, 5);
-      if (s.ventBurst) {
-        credit = "vent burst";
-        near(p.x, p.y, 60, (e) => {
-          const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-          if (d < 45 + e.d.r) hitEnemy(run, e, s.ventBurst * waveHpMul(run.wave) * 0.8, (dx / d) * 80, (dy / d) * 80);
-        });
-        run.fx.push({ type: "ring", x: p.x, y: p.y, r: 45, t: 0.35, max: 0.35, color: "#ffb36b" });
-      }
+      volley(plans);
+      if (s.twinCap) { cap.twin = 1; cap.hold = 0; } else startVent(1);
     }
   }
 
@@ -728,6 +752,23 @@ export function update(run, dt, move) {
     }
     if (!sh.air && solidAt(city, sh.x, sh.y)) {   // cover: rounds chew into whatever they hit
       damageAt(city, Math.floor(sh.y / TILE) * TCOLS + Math.floor(sh.x / TILE), sh.dmg * BUILDING_DMG.ballistic);
+      if (s.ricochet && !sh.bounced) {   // Ricochet: off the wall, toward the nearest body if there is one
+        const R = KEYSTONE.ricochet, px = sh.x - sh.vx * dt, py = sh.y - sh.vy * dt, sp = Math.hypot(sh.vx, sh.vy);
+        const hx = solidAt(city, sh.x, py), hy = solidAt(city, px, sh.y);
+        if (hx || !hy) sh.vx = -sh.vx;
+        if (hy || !hx) sh.vy = -sh.vy;
+        let best = null, bd = R.seek;
+        near(px, py, R.seek, (e) => {
+          if (e.dead || e.d.flying) return;
+          const dx = e.x - px, dy = e.y - py, d = Math.hypot(dx, dy);
+          if (d < bd && dx * sh.vx + dy * sh.vy > 0) { bd = d; best = e; }   // only ones on the side it bounces to
+        });
+        if (best) { sh.vx = ((best.x - px) / bd) * sp; sh.vy = ((best.y - py) / bd) * sp; }
+        sh.x = px; sh.y = py; sh.bounced = true; sh.dmg *= R.dmg; sh.life = Math.max(sh.life, R.life); sh.slope = 0;
+        run.parts.push({ x: px, y: py, vx: sh.vx * 0.2, vy: sh.vy * 0.2, t: 0.15, max: 0.15, color: "#fff6d6", size: 1, spark: true });
+        run.events.push({ type: "tink" });
+        continue;
+      }
       sh.life = 0;
       for (let i = 0; i < 2; i++) {
         const a = Math.atan2(-sh.vy, -sh.vx) + (rand() - 0.5) * 2, v = 30 + rand() * 50;
@@ -780,7 +821,7 @@ export function update(run, dt, move) {
     pl.t -= dt;
     near(pl.x, pl.y, pl.r + 16, (e) => {   // whatever stands (or hovers low) in it keeps burning
       if (e.dead || (e.d.flying && altOf(e) > 12) || Math.hypot(e.x - pl.x, (e.y - pl.y) * 1.4) > pl.r + e.d.r * 0.5) return;
-      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps); e.burnSrc = pl.hostile ? "friendly fire" : "napalm";
+      e.burn = Math.max(e.burn || 0, 0.7); e.burnDps = Math.max(e.burnDps || 0, pl.dps); e.burnSrc = pl.hostile ? "friendly fire" : pl.src || "napalm";
     });
     if (pl.hostile && (pl.hurtT -= dt) <= 0 && Math.hypot(p.x - pl.x, (p.y - pl.y) * 1.4) < pl.r + 2) { pl.hurtT = 0.4; hurtPlayer(run, pl.hostile * 0.4, "burning ground"); }
     if (pl.bb && (pl.tick -= dt) <= 0) {   // and it catches the buildings it touches
@@ -793,6 +834,23 @@ export function update(run, dt, move) {
     }
   }
   run.pools = run.pools.filter((pl) => pl.t > 0);
+
+  if (run.chains?.length) {   // Chain Reaction blasts
+    const C = KEYSTONE.chain;
+    credit = "chain reaction";
+    for (const c of run.chains) {
+      if ((c.t -= dt) > 0) continue;
+      near(c.x, c.y, C.radius + 16, (e) => {
+        if (e.dead || Math.hypot(e.x - c.x, e.y - c.y) > C.radius + e.d.r) return;
+        e.burn = Math.max(e.burn || 0, C.burn); e.burnDps = Math.max(e.burnDps || 0, c.dmg * C.burnFrac); e.burnSrc = "chain reaction";
+        hitEnemy(run, e, c.dmg, (e.x - c.x) * 3, (e.y - c.y) * 3, true);
+      });
+      run.fx.push({ type: "boom", x: c.x, y: c.y, r: C.radius * 0.5, t: 0.35, max: 0.35 });
+      run.events.push({ type: "boom", r: 8 });
+      run.shake = Math.max(run.shake, 2);
+    }
+    run.chains = run.chains.filter((c) => c.t > 0);
+  }
 
   // --- artillery shells: fly over everything, land where they were aimed
   blame = "invaders"; credit = "friendly fire";
@@ -1016,6 +1074,14 @@ function processCollapses(run) {
       run.parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.5 + run.rand() * 0.3, max: 0.8, color: run.rand() < 0.5 ? "#5a564f" : "#2a2724", size: 2 });
     }
     breakProps(run, cx, cy, Math.max(b.w, b.h) * TILE * 0.6);
+    if (run.stats.wrecking) {   // Wrecking Crew: whatever stands beside it goes under
+      const W = KEYSTONE.wrecking, was = credit, dmg = (W.base + W.perTile * b.w * b.h) * waveHpMul(run.wave) * (1 + run.stats.dmgAll);
+      const x0 = b.x * TILE - W.margin, x1 = (b.x + b.w) * TILE + W.margin, y0 = b.y * TILE - W.margin, y1 = (b.y + b.h) * TILE + W.margin;
+      credit = "wrecking crew";
+      for (const e of run.enemies) if (!e.dead && !e.d.hive && !(e.d.flying && altOf(e) > 12) && e.x > x0 && e.x < x1 && e.y > y0 && e.y < y1) hitEnemy(run, e, dmg, (e.x - cx) * 2, (e.y - cy) * 2);
+      credit = was;
+      run.fx.push({ type: "ring", x: cx, y: cy, r: Math.max(b.w, b.h) * TILE * 0.5 + W.margin, t: 0.4, max: 0.4, color: "#d8c9a8" });
+    }
     for (let n = Math.max(1, Math.round((b.w * b.h) / 3)); n > 0; n--) {
       run.pickups.push({ x: (b.x + 0.2 + run.rand() * (b.w - 0.4)) * TILE, y: (b.y + 0.2 + run.rand() * (b.h - 0.4)) * TILE, n: 1, v: 0, pull: false });
     }
@@ -1213,6 +1279,15 @@ function proc(run, e, dmg, fam) {
 // The direction a hit is travelling (rounds, beams), or null for blast, fire, melee and ramming: only directed
 // hits can be stopped by a Shield Drone's plate.
 let hitDir = null;
+/** Static Field: a melee hit jumps to the nearest other enemy */
+function staticArc(run, e, dmg) {
+  const S = KEYSTONE.static;
+  let best = null, bd = S.jump;
+  near(e.x, e.y, S.jump, (q) => { if (q === e || q.dead) return; const d = Math.hypot(q.x - e.x, q.y - e.y); if (d < bd) { bd = d; best = q; } });
+  if (!best) return;
+  const was = credit; credit = "static field"; hitEnemy(run, best, dmg * S.frac, 0, 0, true); credit = was;
+  run.fx.push({ type: "arc", pts: [[e.x, e.y - 4], [best.x, best.y - 4]], t: 0.14, max: 0.14 });
+}
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
   if (e.dead) return;
@@ -1251,6 +1326,10 @@ function hitEnemy(run, e, dmg, kx, ky, quiet = false) {
     if (b && !b.dead) { b.hiveBank = b.hiveFrac = undefined; b.hp = 1; damageBuilding(run.city, b, 10); }
   }
   if (e.d.r >= 9) breakProps(run, e.x, e.y, e.d.r + 6);
+  if (run.stats.chainReaction && e.burn > 0 && !e.d.blast) {   // Chain Reaction: it goes up a beat later, so a crowd ripples
+    const C = KEYSTONE.chain;
+    (run.chains ||= []).push({ x: e.x, y: e.y, t: C.delay, dmg: Math.min(e.maxHp, 60 * waveHpMul(run.wave)) * C.hpFrac });
+  }
   if (e.d.blast) explode(run, e);   // shot sappers still go off: chain reactions
 }
 
@@ -1400,11 +1479,20 @@ export const weaponPrice = (key, tier, wave) => Math.round(WEAPONS[key].price * 
 export const modulePrice = (key, wave) => Math.round(MODULES[key].price * SHOP.priceWaveMul(wave));
 export const rerollCost = (run) => (run.stats.freeReroll && run.shop.rerolls === 0 ? 0 : SHOP.rerollBase + SHOP.rerollStep * run.shop.rerolls + run.wave);   // Warden: first reroll free
 
+const KEYSTONE_KEYS = Object.keys(MODULES).filter((k) => MODULES[k].keystone), PLAIN_MODULES = Object.keys(MODULES).filter((k) => !MODULES[k].keystone);
+/** The run's keystone (a module key), if one has been bought: there is only ever one. */
+export const keystoneOf = (run) => run.modules.find((m) => MODULES[m].keystone) || null;
+
 export function rollOffers(run) {
   const kept = run.shop.offers.filter((o) => o.locked);
   const out = [...kept];
   const w = run.wave + 1;   // the wave about to be fought (0-based)
   let guard = 0;
+  // a keystone: from the wave-3 hangar, while none is owned, at most one on offer
+  if (run.wave >= SHOP.keystoneFrom && !keystoneOf(run) && !out.some((o) => MODULES[o.key]?.keystone && o.kind === "module") && out.length < SHOP.offers && run.rand() < SHOP.keystoneChance) {
+    const key = pick(run.rand, KEYSTONE_KEYS.map((k) => [k, 1]));
+    out.push({ kind: "module", key, tier: 0, price: Math.round(modulePrice(key, run.wave) * (1 - run.stats.discount)), locked: false, sold: false });
+  }
   while (out.length < SHOP.offers && guard++ < 100) {
     let o;
     if (run.rand() < 0.5) {
@@ -1413,7 +1501,7 @@ export function rollOffers(run) {
       const tier = r < Math.min(0.3, 0.07 * Math.max(0, w - 2)) ? 2 : r < Math.min(0.7, 0.14 * w) ? 1 : 0;   // capped: tier I stays on offer late, for merging
       o = { kind: "weapon", key, tier, price: Math.round(weaponPrice(key, tier, run.wave) * (1 - run.stats.discount)) };   // Warden: 10% off
     } else {
-      const key = pick(run.rand, Object.keys(MODULES).map((k) => [k, 1]));
+      const key = pick(run.rand, PLAIN_MODULES.map((k) => [k, 1]));
       if (MODULES[key].unique && run.modules.includes(key)) continue;
       if (moduleSpent(run, key)) continue;   // maxed out: another copy would do nothing
       o = { kind: "module", key, tier: 0, price: Math.round(modulePrice(key, run.wave) * (1 - run.stats.discount)) };
@@ -1439,6 +1527,7 @@ export function blocked(run, o) {
   if (run.salvage < o.price) return "Can't afford";
   if (o.kind === "module") {
     if (MODULES[o.key].unique && run.modules.includes(o.key)) return "Installed";
+    if (MODULES[o.key].keystone && keystoneOf(run)) return "Keystone set";
     if (moduleSpent(run, o.key)) return "Maxed out";
     if (run.load + MODULES[o.key].weight > capacityOf(run)) return "Over tonnage";
     return null;

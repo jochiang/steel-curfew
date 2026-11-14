@@ -3,7 +3,7 @@ import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
 import { createRenderer } from "./render.js";
-import { newRun, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
+import { newRun, recompute, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
 import { botMove, botShop, botLevelUp } from "./bot.js";
 import { play, setRain, probe, SFX_NAMES } from "./audio.js";
@@ -228,12 +228,13 @@ function musicContext() {
 //
 // window.__mech: live handles (run, paused, deploy, pause, resume, resumeRun, opts, renderer, music, lastError), plus
 // window.__mech.test: helpers with no use in the game: strike() (lightning now, heavy rain only), probe(type, e, filter, raw)
-// (render one sound effect offline), sfxNames, renderPreview(timeline, bars) (render the score offline).
+// (render one sound effect offline), sfxNames, renderPreview(timeline, bars) (render the score offline), give(module key)
+// (install a module or keystone), sync() (show the screen for the run's current phase).
 window.__mech = {
   get run() { return run; }, get paused() { return paused; }, deploy, pause, resume, resumeRun, opts, renderer,
   music: musicState,
   lastError: () => { try { return JSON.parse(localStorage.getItem("mech.lastError")); } catch { return null; } },
-  test: { strike: renderer.test.strike, probe, sfxNames: SFX_NAMES, renderPreview },
+  test: { strike: renderer.test.strike, probe, sfxNames: SFX_NAMES, renderPreview, give: (k) => { run.modules.push(k); recompute(run); }, sync: () => syncScreens() },
 };
 if (params.has("go")) deploy(); else toTitle();
 addEventListener("mech:zoom", (e) => renderer.setZoom(e.detail));
