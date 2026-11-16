@@ -2,6 +2,7 @@ import "@fontsource/pixelify-sans/500.css";
 import "@fontsource/pixelify-sans/700.css";
 import "./style.css";
 import { createInput } from "./input.js";
+import { createPad } from "./pad.js";
 import { createRenderer } from "./render.js";
 import { newRun, recompute, enterDistrict, update, nextWave, startWave, darkness, stayOut, rainAt } from "./game.js";
 import { show, renderTitle, renderHangar, renderLevelUp, renderPaused, renderEnd, updateHud } from "./ui.js";
@@ -108,6 +109,7 @@ function stay() {   // after the wave-5 boss: carry on past curfew instead of ex
 function pause() { if (run?.phase === "combat" && !paused) { paused = true; input.reset(); syncScreens(); } }
 function resume() { paused = false; last = performance.now(); syncScreens(); }
 
+const pad = createPad({ onPause: () => (paused ? resume() : pause()), inCombat: () => !!run && run.phase === "combat" && !paused });
 hudEl.querySelector(".pause").addEventListener("click", pause);
 hudEl.querySelector(".fs").addEventListener("click", () => toggleFullscreen());
 syncFs();
@@ -148,7 +150,7 @@ let lastFrameAt = performance.now(), simSeen = { t: -1, at: 0 };
 function frame(now) {
   requestAnimationFrame(frame);
   lastFrameAt = performance.now();
-  try { step(now); } catch (err) { reportError(err); }
+  try { pad.poll(); step(now); } catch (err) { reportError(err); }
 }
 
 // Watchdog for freezes that throw nothing: the browser stops giving us frames, or frames arrive but

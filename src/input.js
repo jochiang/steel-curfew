@@ -1,4 +1,6 @@
-// Movement input: keyboard, plus a floating virtual stick for touch (and mouse drag).
+import { padMove } from "./pad.js";
+
+// Movement input: keyboard, a controller, plus a floating virtual stick for touch (and mouse drag).
 // The stick appears wherever the finger lands and its base follows the finger when dragged
 // past the rim, so direction changes never need a long thumb trip back.
 
@@ -51,6 +53,8 @@ export function createInput(surface) {
         const k = Math.min(1, (m - DEADZONE) / (1 - DEADZONE) / 0.85) / m;   // full speed at 85% deflection
         return { x: dx * k, y: dy * k };
       }
+      const pad = padMove();
+      if (pad) return pad;
       let x = 0, y = 0;
       for (const c of held) { x += KEYS[c][0]; y += KEYS[c][1]; }
       const m = Math.hypot(x, y);

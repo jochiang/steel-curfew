@@ -358,3 +358,6 @@ kbd { font-family: var(--px); background: var(--panel-2); border: 1px solid var(
 .offer.keystone .tag, .offer.keystone b { color: #ffe08a; }
 .offer.keystone.locked { box-shadow: inset 0 0 0 1px var(--accent), 0 0 14px rgba(255, 207, 90, 0.18); }
 .chip.keystone { border-color: #c79a2e; color: #ffe08a; background: rgba(255, 207, 90, 0.1); }
+
+/* controller focus ring: only while a gamepad is driving the menus */
+.pad button:focus, .pad input:focus { outline: 2px solid #ffd257; outline-offset: 2px; box-shadow: 0 0 0 5px rgba(255, 210, 87, 0.22); }
